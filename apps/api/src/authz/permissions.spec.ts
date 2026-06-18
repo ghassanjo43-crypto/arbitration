@@ -1,0 +1,50 @@
+import { ALL_ROLES, Permission, permissionsForRoles, Role, ROLE_PERMISSIONS, STAFF_ROLES } from '@gaap/shared';
+
+describe('Role/permission matrix invariants', () => {
+  it('never grants deliberation:participate to ANY global role', () => {
+    for (const role of ALL_ROLES) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain(Permission.DELIBERATION_PARTICIPATE);
+    }
+  });
+
+  it('gives party roles no global permissions', () => {
+    for (const role of [Role.INDIVIDUAL, Role.COMPANY_CLIENT, Role.LAWYER, Role.ARBITRATOR]) {
+      expect(ROLE_PERMISSIONS[role]).toHaveLength(0);
+    }
+  });
+
+  it('restricts role:manage and settings:manage to the super administrator', () => {
+    for (const role of ALL_ROLES) {
+      const held = ROLE_PERMISSIONS[role];
+      if (role === Role.SUPER_ADMIN) {
+        expect(held).toContain(Permission.ROLE_MANAGE);
+        expect(held).toContain(Permission.SETTINGS_MANAGE);
+      } else {
+        expect(held).not.toContain(Permission.ROLE_MANAGE);
+        expect(held).not.toContain(Permission.SETTINGS_MANAGE);
+      }
+    }
+  });
+
+  it('lets the registrar run the case queue but not approve arbitrators', () => {
+    const reg = ROLE_PERMISSIONS[Role.REGISTRAR];
+    expect(reg).toContain(Permission.CASE_VIEW_QUEUE);
+    expect(reg).not.toContain(Permission.ARBITRATOR_APPROVE);
+  });
+
+  it('reserves arbitrator approval/challenges for the council', () => {
+    expect(ROLE_PERMISSIONS[Role.COUNCIL_MEMBER]).toContain(Permission.ARBITRATOR_APPROVE);
+    expect(ROLE_PERMISSIONS[Role.COUNCIL_MEMBER]).toContain(Permission.CHALLENGE_DECIDE);
+  });
+
+  it('merges permissions across multiple roles without duplicates', () => {
+    const merged = permissionsForRoles([Role.REGISTRAR, Role.ADMIN]);
+    expect(new Set(merged).size).toBe(merged.length);
+    expect(merged).toContain(Permission.CASE_VIEW_QUEUE);
+    expect(merged).toContain(Permission.USER_MANAGE);
+  });
+
+  it('classifies all institutional roles as staff', () => {
+    expect(STAFF_ROLES).toEqual(expect.arrayContaining([Role.REGISTRAR, Role.COUNCIL_MEMBER, Role.ADMIN, Role.SUPER_ADMIN]));
+  });
+});

@@ -1,0 +1,12 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testMatch": ["<rootDir>/**/*.e2e-spec.ts"],
+  "transform": { "^.+\\.ts$": ["ts-jest", { "isolatedModules": true }] },
+  "testEnvironment": "node",
+  "testTimeout": 120000,
+  "moduleNameMapper": {
+    "^@gaap/shared$": "<rootDir>/../../../packages/shared/src/index.ts",
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  }
+}

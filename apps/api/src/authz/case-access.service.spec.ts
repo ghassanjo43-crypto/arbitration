@@ -77,4 +77,57 @@ describe('CaseAccessService — document visibility', () => {
     });
     expect(canView).toBe(false);
   });
+
+  it('treats PUBLIC documents as visible to everyone, even non-members', async () => {
+    const svc = makeService([]);
+    const canView = await svc.canViewDocument(user([Role.INDIVIDUAL]), {
+      caseId: 'case-1',
+      confidentiality: ConfidentialityLevel.PUBLIC,
+      visibleToSide: null,
+    });
+    expect(canView).toBe(true);
+  });
+
+  it('shows CASE_PARTIES documents to any case participant', async () => {
+    const svc = makeService([{ caseRole: CaseRole.RESPONDENT_REPRESENTATIVE, side: PartySide.RESPONDENT }]);
+    const canView = await svc.canViewDocument(user([Role.LAWYER]), {
+      caseId: 'case-1',
+      confidentiality: ConfidentialityLevel.CASE_PARTIES,
+      visibleToSide: null,
+    });
+    expect(canView).toBe(true);
+  });
+
+  it('hides CASE_PARTIES documents from a complete outsider', async () => {
+    const svc = makeService([]);
+    const canView = await svc.canViewDocument(user([Role.INDIVIDUAL]), {
+      caseId: 'case-1',
+      confidentiality: ConfidentialityLevel.CASE_PARTIES,
+      visibleToSide: null,
+    });
+    expect(canView).toBe(false);
+  });
+
+  it('lets the tribunal read the opposing side PARTY_PRIVATE material', async () => {
+    const svc = makeService([{ caseRole: CaseRole.TRIBUNAL_CHAIR }]);
+    const canView = await svc.canViewDocument(user([Role.ARBITRATOR]), {
+      caseId: 'case-1',
+      confidentiality: ConfidentialityLevel.PARTY_PRIVATE,
+      visibleToSide: PartySide.CLAIMANT,
+    });
+    expect(canView).toBe(true);
+  });
+});
+
+describe('CaseAccessService — case access', () => {
+  it('rejects a user with no membership and no administrative reach', async () => {
+    const svc = makeService([]);
+    await expect(svc.assertCanAccessCase(user([Role.INDIVIDUAL]), 'case-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('permits a registrar to administer the case', async () => {
+    const svc = makeService([]);
+    const m = await svc.assertCanAccessCase(user([Role.REGISTRAR], [Permission.CASE_VIEW_QUEUE]), 'case-1');
+    expect(m.isTribunal).toBe(false);
+  });
 });

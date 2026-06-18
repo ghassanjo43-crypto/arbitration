@@ -144,7 +144,17 @@ This repository is being built in phases (see the original specification):
 - **Phase 4 — Complete (backend):** ✅ document repository (confidentiality-filtered listing, SHA-256 hashing, access-checked download, activity log), ✅ secure case messaging with **ex-parte guard** (a party's substantive message reaches all parties; `ADMIN_PRIVATE` is registry-only), ✅ procedural calendar (deadlines + personal aggregation), ✅ hearings with the video-provider abstraction (auto-provisions tribunal/party/witness/breakout rooms), ✅ fees & payments (invoices, allocations, "one party may pay another's share", balances). 52 API routes; all guarded and verified live.
 - **Phase 3–4 frontend — Complete:** ✅ tabbed **case workspace** (Overview · Documents · Messages · Calendar · Finance · Deliberations) with real upload/download, messaging, deadline/hearing scheduling, and finance actions gated by permission; ✅ **role-aware dashboard** (registry queue, arbitrator appointment invitations with conflict-disclosure + accept, lawyer clients, personal calendar). The Deliberations tab appears only for appointed tribunal members.
 - **Phase 5 — Complete (backend + frontend):** ✅ **awards lifecycle** — draft (tribunal-only) → sign → issue (auto-delivers to every party + notifications, advances the case) → party-requested correction/interpretation/additional award; draft awards are hidden from parties; careful enforcement wording attached. ✅ **content CMS** — guarded create/update/publish/archive for news, court highlights, and publications, feeding the public site. Awards tab in the case workspace + an admin "Manage content" page. 63 API routes.
-- **Phase 6 — Pending:** further security hardening and the full automated test matrix.
+- **Phase 6 — Complete:** ✅ security hardening — global rate-limit guard (`APP_GUARD` ThrottlerGuard) with stricter per-route limits on auth, a global exception filter that adds a correlation id and never leaks 5xx internals, and a hard upload size cap at the transport layer. ✅ **automated test matrix** — 27 unit tests + 11 end-to-end tests (auth, case access, tribunal-deliberation, document access, and the full appointment→conflict→accept→constitute→award critical flow), the e2e suite running against an isolated `e2e_test` Postgres schema.
+
+### Testing
+
+```bash
+npm run test     -w @gaap/api      # 27 unit tests (no DB)
+npm run test:e2e -w @gaap/api      # 11 e2e tests (needs the embedded/Docker Postgres running)
+npm test         -w @gaap/web      # web unit tests
+```
+
+The e2e suite resets an isolated `e2e_test` schema, applies migrations, boots the Nest app in-process, and exercises the spec's critical flows and every confidentiality guarantee (including that a super-admin is denied tribunal deliberations and award drafting).
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full module map and roadmap.
 

@@ -28,7 +28,8 @@ export class DocumentsController {
 
   @Post('cases/:caseId/documents')
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file'))
+  // Hard cap at the transport layer; the service re-checks against MAX_UPLOAD_MB.
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024, files: 1 } }))
   upload(
     @CurrentUser() user: AuthUser,
     @Param('caseId') caseId: string,

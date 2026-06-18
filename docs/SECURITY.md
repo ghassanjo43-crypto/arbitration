@@ -71,7 +71,20 @@ document; items marked *(ready)* have an interface/abstraction in place pending 
 
 ## Tested guarantees
 
-`apps/api/src/authz/case-access.service.spec.ts` asserts:
-- a super-admin who is not on the tribunal is denied deliberation access;
-- a registrar administering a case is denied deliberation access and `TRIBUNAL_ONLY` docs;
-- the opposing party cannot read another side's `PARTY_PRIVATE` documents.
+Unit suite (`apps/api/src`, 27 tests):
+- `authz/case-access.service.spec.ts` — deliberations restricted to appointed tribunal members
+  (super-admin and registrar denied); opposing party cannot read another side's `PARTY_PRIVATE`
+  documents; PUBLIC/CASE_PARTIES/TRIBUNAL_ONLY visibility behave as specified.
+- `authz/permissions.spec.ts` — `deliberation:participate` is granted to no global role;
+  party roles hold no global permissions; `role:manage`/`settings:manage` are super-admin only.
+- `auth/password.service.spec.ts` — Argon2id hash/verify, random salt, and pepper-mismatch
+  rejection (a DB-only leak cannot verify passwords).
+- `fees/fee-calculator.service.spec.ts` — advisory fee logic.
+
+End-to-end suite (`apps/api/test/app.e2e-spec.ts`, 11 tests, isolated `e2e_test` schema):
+- auth (wrong password → 401, valid → token, no token → 401);
+- case access (member 200, outsider 403);
+- tribunal deliberations (member 200; party 403; **super-admin 403**);
+- document access (opposing party cannot list or fetch a side's `PARTY_PRIVATE` doc; tribunal can);
+- critical flow: appointment invite → conflict disclosure → accept (grants deliberation access) →
+  constitute → award draft → sign → issue; and super-admin award drafting → 403.
