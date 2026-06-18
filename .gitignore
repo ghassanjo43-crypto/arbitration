@@ -28,10 +28,13 @@ logs/
 *.log
 npm-debug.log*
 
-# Local storage / uploads (never commit confidential files)
-storage/
+# Local object storage. The FOLDER is kept (so a fresh clone has it), but the
+# uploaded files inside are confidential case material and are never committed.
+apps/api/storage/*
+!apps/api/storage/.gitkeep
+!apps/api/storage/README.md
+/storage/
 uploads/
-!storage/.gitkeep
 
 # Editor / OS
 .idea/
