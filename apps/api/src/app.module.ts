@@ -19,6 +19,7 @@ import { MessagesModule } from './messages/messages.module';
 import { DeadlinesModule } from './deadlines/deadlines.module';
 import { HearingsModule } from './hearings/hearings.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AwardsModule } from './awards/awards.module';
 import { FeesModule } from './fees/fees.module';
 import { HealthController } from './health/health.controller';
 
@@ -55,6 +56,7 @@ import { HealthController } from './health/health.controller';
     DeadlinesModule,
     HearingsModule,
     PaymentsModule,
+    AwardsModule,
     FeesModule,
   ],
   controllers: [HealthController],

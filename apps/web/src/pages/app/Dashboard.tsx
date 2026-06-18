@@ -25,6 +25,7 @@ export function Dashboard() {
             <p className="muted">{user?.email} · {user?.roles.join(', ')}</p>
           </div>
           <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
+            {has(Permission.NEWS_MANAGE) && <Link to="/app/admin/content" className="btn btn--ghost">Manage content</Link>}
             <Link to="/file-a-case" className="btn btn--gold">File a new case</Link>
             <button className="btn btn--ghost" onClick={() => void logout()}>Sign out</button>
           </div>

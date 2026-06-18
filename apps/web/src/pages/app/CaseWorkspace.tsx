@@ -7,6 +7,7 @@ import { DocumentsTab } from './case/DocumentsTab';
 import { MessagesTab } from './case/MessagesTab';
 import { CalendarTab } from './case/CalendarTab';
 import { FinanceTab } from './case/FinanceTab';
+import { AwardsTab } from './case/AwardsTab';
 import { DeliberationsTab } from './case/DeliberationsTab';
 
 interface CaseDetail {
@@ -23,7 +24,7 @@ interface CaseDetail {
   _membership: { isTribunal: boolean; caseRoles: string[] };
 }
 
-type TabKey = 'overview' | 'documents' | 'messages' | 'calendar' | 'finance' | 'deliberations';
+type TabKey = 'overview' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
 
 export function CaseWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -47,6 +48,7 @@ export function CaseWorkspace() {
     { key: 'messages', label: 'Messages' },
     { key: 'calendar', label: 'Calendar' },
     { key: 'finance', label: 'Finance' },
+    { key: 'awards', label: 'Awards' },
     ...(isTribunal ? [{ key: 'deliberations' as TabKey, label: 'Deliberations' }] : []),
   ];
 
@@ -103,6 +105,7 @@ export function CaseWorkspace() {
           {tab === 'messages' && <MessagesTab caseId={data.id} />}
           {tab === 'calendar' && <CalendarTab caseId={data.id} isTribunal={isTribunal} />}
           {tab === 'finance' && <FinanceTab caseId={data.id} />}
+          {tab === 'awards' && <AwardsTab caseId={data.id} isTribunal={isTribunal} />}
           {tab === 'deliberations' && isTribunal && <DeliberationsTab caseId={data.id} />}
         </div>
       </div>

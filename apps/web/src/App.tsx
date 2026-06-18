@@ -15,6 +15,7 @@ import {
 } from './pages/static';
 import { Dashboard } from './pages/app/Dashboard';
 import { CaseWorkspace } from './pages/app/CaseWorkspace';
+import { AdminContent } from './pages/app/AdminContent';
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="app" element={<ProtectedRoute />}>
             <Route index element={<Dashboard />} />
             <Route path="cases/:id" element={<CaseWorkspace />} />
+            <Route path="admin/content" element={<AdminContent />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />
