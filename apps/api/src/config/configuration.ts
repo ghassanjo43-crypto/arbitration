@@ -40,12 +40,15 @@ function required(name: string, value: string | undefined, fallback?: string): s
 
 export default (): AppConfig => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
-  apiPort: parseInt(process.env.API_PORT ?? '4000', 10),
+  // Render (and most PaaS) inject PORT; prefer it, fall back to API_PORT.
+  apiPort: parseInt(process.env.PORT ?? process.env.API_PORT ?? '4000', 10),
   publicWebUrl: process.env.PUBLIC_WEB_URL ?? 'http://localhost:5173',
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean),
+    .filter(Boolean)
+    // Allow a bare hostname (e.g. from a Render fromService binding) — assume https.
+    .map((o) => (/^https?:\/\//.test(o) ? o : `https://${o}`)),
   jwt: {
     accessSecret: required('JWT_ACCESS_SECRET', process.env.JWT_ACCESS_SECRET, 'dev-access-secret-change-me'),
     refreshSecret: required('JWT_REFRESH_SECRET', process.env.JWT_REFRESH_SECRET, 'dev-refresh-secret-change-me'),

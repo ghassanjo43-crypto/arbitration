@@ -1,6 +1,18 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
-const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '/api';
+function resolveApiBase(): string {
+  const raw = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  if (!raw) return '/api';
+  // Relative base (same-origin proxy) is used as-is.
+  if (raw.startsWith('/')) return raw;
+  // Absolute base: ensure a scheme and the required /api prefix.
+  let base = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+  base = base.replace(/\/+$/, '');
+  if (!/\/api$/.test(base)) base = `${base}/api`;
+  return base;
+}
+
+const BASE_URL = resolveApiBase();
 
 let accessToken: string | null = null;
 export function setAccessToken(token: string | null): void {

@@ -55,6 +55,13 @@ const ARB_SEED = [
 ];
 
 async function main() {
+  // Idempotency guard: safe to run on every deploy (e.g. a Render pre-deploy hook).
+  const already = await prisma.user.findFirst({ where: { email: 'superadmin@arbitration.example' } });
+  if (already) {
+    console.log('Seed data already present — skipping.');
+    return;
+  }
+
   console.log('Seeding…');
 
   // ---- Staff ----

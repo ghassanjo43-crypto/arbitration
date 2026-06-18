@@ -1,0 +1,81 @@
+# Render Blueprint — Global Ad Hoc Arbitration Panel
+# One-click(ish) deploy of: managed PostgreSQL + NestJS API + static React frontend.
+#
+# IMPORTANT — service URLs:
+#   Render derives each service's URL from its name: https://<name>.onrender.com
+#   This file assumes the names below are available. If Render appends a suffix
+#   (because a name is taken), update the two cross-referencing values marked
+#   "EDIT IF RENAMED": the API's CORS_ORIGINS and the web's VITE_API_URL.
+
+databases:
+  - name: gaap-db
+    databaseName: arbitration
+    user: arbitration
+    plan: free
+
+services:
+  # ---- API (NestJS) ----
+  - type: web
+    name: gaap-api
+    runtime: node
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    buildCommand: >-
+      npm ci &&
+      npm run build -w @gaap/shared &&
+      npm run prisma:generate -w @gaap/api &&
+      npm run build -w @gaap/api
+    # Runs after build, before the new version receives traffic. Idempotent:
+    # migrate deploy is safe to re-run; the seed self-skips once data exists.
+    preDeployCommand: >-
+      npm run db:migrate:deploy -w @gaap/api &&
+      npm run db:seed -w @gaap/api
+    startCommand: npm run start:prod -w @gaap/api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gaap-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: PASSWORD_PEPPER
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      # EDIT IF RENAMED — must be the frontend's full origin (for CORS + cookies).
+      - key: CORS_ORIGINS
+        value: https://gaap-web.onrender.com
+      - key: PUBLIC_WEB_URL
+        value: https://gaap-web.onrender.com
+      - key: STORAGE_DRIVER
+        value: local
+      - key: EMAIL_DRIVER
+        value: console
+      - key: PAYMENT_DRIVER
+        value: manual
+      - key: VIDEO_DRIVER
+        value: placeholder
+
+  # ---- Frontend (static React build) ----
+  - type: web
+    name: gaap-web
+    runtime: static
+    buildCommand: >-
+      npm ci &&
+      npm run build -w @gaap/shared &&
+      npm run build -w @gaap/web
+    staticPublishPath: apps/web/dist
+    envVars:
+      # EDIT IF RENAMED — baked into the bundle at build time. Needs the /api suffix.
+      - key: VITE_API_URL
+        value: https://gaap-api.onrender.com/api
+    routes:
+      # SPA fallback so client-side routes resolve to index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
