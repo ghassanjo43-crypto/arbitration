@@ -1,0 +1,93 @@
+{
+  "brand": { "name": "Global Ad Hoc Arbitration Panel", "short": "Arbitration Panel" },
+  "nav": {
+    "home": "Home",
+    "about": "About the Panel",
+    "howItWorks": "How Arbitration Works",
+    "rules": "Arbitration Rules",
+    "fileCase": "File a Case",
+    "arbitrators": "Arbitrator Directory",
+    "lawyerRegistration": "Lawyer Registration",
+    "feeCalculator": "Fee Calculator",
+    "news": "Legal News",
+    "courtHighlights": "Court Highlights",
+    "publications": "Publications",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "privacy": "Privacy & Security",
+    "terms": "Terms & Conditions",
+    "modelClause": "Model Clause",
+    "submissionAgreement": "Submission Agreement",
+    "signIn": "Sign In",
+    "dashboard": "Dashboard",
+    "resources": "Resources",
+    "platform": "Platform"
+  },
+  "common": {
+    "fileCaseCta": "File an Arbitration Case",
+    "viewArbitrators": "View Arbitrators",
+    "learnMore": "Learn more",
+    "search": "Search",
+    "filters": "Filters",
+    "clearFilters": "Clear filters",
+    "loading": "Loading…",
+    "error": "Something went wrong.",
+    "noResults": "No results found.",
+    "readMore": "Read more",
+    "all": "All",
+    "page": "Page",
+    "of": "of",
+    "language": "Language"
+  },
+  "home": {
+    "heroEyebrow": "International Ad Hoc Arbitration",
+    "heroTitle": "A trusted forum for resolving cross-border disputes.",
+    "heroSubtitle": "A secure online environment for administering ad hoc arbitration — connecting parties, counsel, and a panel of prominent arbitrators across jurisdictions.",
+    "explainTitle": "An institution of administration, not adjudication",
+    "explainBody": "We provide the technology, case management, secure storage, hearings, and fee administration that ad hoc arbitration requires. The tribunal alone decides the merits.",
+    "benefitsTitle": "Why parties choose the Panel",
+    "processTitle": "How the process works",
+    "expertiseTitle": "Areas of arbitration expertise",
+    "featuredTitle": "Featured arbitrators",
+    "securityTitle": "Security & confidentiality by design",
+    "internationalTitle": "Built for international access",
+    "newsTitle": "Legal news",
+    "highlightsTitle": "Court highlights",
+    "finalCtaTitle": "Ready to commence arbitration?",
+    "finalCtaBody": "Begin a Notice of Arbitration online. Save your progress and return at any time."
+  },
+  "legal": {
+    "adminVsDecision": "The operating company administers cases, provides technology, handles payments, sends notices, supports appointments, organises hearings, and maintains records. The arbitrator or tribunal alone determines jurisdiction, decides procedural and substantive issues, evaluates evidence, and issues orders and awards.",
+    "noGuarantee": "Awards are intended to be final and binding and may be recognised and enforced subject to applicable arbitration laws, international conventions, public policy, due process, and the law of the enforcement jurisdiction. The platform does not guarantee that any award is enforceable in every jurisdiction.",
+    "adviceDisclaimer": "This is a model for general reference only and is not legal advice. Obtain independent legal advice before adopting any arbitration clause or submission agreement."
+  },
+  "footer": {
+    "tagline": "Administering ad hoc arbitration with discretion, security, and international reach.",
+    "rights": "All rights reserved.",
+    "disclaimerTitle": "Important notice"
+  },
+  "directory": {
+    "title": "Arbitrator Directory",
+    "subtitle": "Search a panel of prominent arbitrators by field, language, jurisdiction, and experience.",
+    "legalField": "Legal field",
+    "industry": "Industry",
+    "nationality": "Nationality",
+    "country": "Country of residence",
+    "availability": "Availability",
+    "feeBand": "Fee level",
+    "experience": "Years of experience",
+    "asSole": "As sole arbitrator",
+    "asChair": "As chairperson",
+    "asCoArbitrator": "As co-arbitrator"
+  },
+  "fees": {
+    "title": "Fee Calculator",
+    "subtitle": "Obtain an indicative estimate of arbitration costs.",
+    "amount": "Amount in dispute",
+    "currency": "Currency",
+    "arbitrators": "Number of arbitrators",
+    "expedited": "Expedited procedure",
+    "calculate": "Calculate estimate",
+    "total": "Estimated initial total"
+  }
+}

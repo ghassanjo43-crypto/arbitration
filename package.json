@@ -1,0 +1,30 @@
+{
+  "name": "global-adhoc-arbitration-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Global Ad Hoc Arbitration Panel — secure online platform for administering ad hoc arbitration proceedings.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @gaap/api\" \"npm run dev -w @gaap/web\"",
+    "build": "npm run build -w @gaap/shared && npm run build -w @gaap/api && npm run build -w @gaap/web",
+    "lint": "npm run lint -w @gaap/api && npm run lint -w @gaap/web",
+    "typecheck": "npm run typecheck -w @gaap/shared && npm run typecheck -w @gaap/api && npm run typecheck -w @gaap/web",
+    "test": "npm run test -w @gaap/api && npm run test -w @gaap/web",
+    "db:migrate": "npm run db:migrate -w @gaap/api",
+    "db:seed": "npm run db:seed -w @gaap/api",
+    "db:reset": "npm run db:reset -w @gaap/api",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

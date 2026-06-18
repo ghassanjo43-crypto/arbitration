@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+apps/web/dist/
+apps/api/dist/
+packages/shared/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Prisma
+apps/api/prisma/*.db
+
+# Embedded (no-Docker) PostgreSQL data directory
+apps/api/.pgdata/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Local storage / uploads (never commit confidential files)
+storage/
+uploads/
+!storage/.gitkeep
+
+# Editor / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.pem
+!.claude/

@@ -1,0 +1,1335 @@
+// Global Ad Hoc Arbitration Panel — Prisma data model
+// All ids are UUIDs. createdAt/updatedAt everywhere; deletedAt for soft-delete
+// where retention/legal hold matters. Confidential access is enforced at the
+// service layer via case membership + ConfidentialityLevel — never by global
+// role alone.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// IDENTITY & ACCESS
+// ============================================================================
+
+enum Role {
+  INDIVIDUAL
+  COMPANY_CLIENT
+  LAWYER
+  ARBITRATOR
+  REGISTRAR
+  COUNCIL_MEMBER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id                String     @id @default(uuid())
+  email             String     @unique
+  passwordHash      String
+  status            UserStatus @default(PENDING_VERIFICATION)
+  emailVerified     Boolean    @default(false)
+  emailVerifiedAt   DateTime?
+  preferredLanguage String     @default("en")
+
+  // MFA-ready
+  mfaEnabled    Boolean @default(false)
+  mfaSecret     String?
+  mfaRecovery   String? // hashed recovery codes (JSON)
+
+  // Lockout
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+
+  // Acceptance tracking
+  termsAcceptedAt   DateTime?
+  termsVersion      String?
+  privacyAcceptedAt DateTime?
+  privacyVersion    String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  profile          UserProfile?
+  roles            UserRole[]
+  individual       IndividualProfile?
+  lawyer           LawyerProfile?
+  arbitrator       ArbitratorProfile?
+  companyMembers   CompanyMember[]
+  sessions         Session[]
+  loginEvents      LoginEvent[]
+  emailTokens      EmailToken[]
+  caseTeamMembers  CaseTeamMember[]
+  documentsUploaded Document[]       @relation("UploadedBy")
+  documentActivity DocumentActivity[]
+  messagesSent     CaseMessage[]    @relation("MessageSender")
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  supportTickets   SupportTicket[]
+  identityChecks   IdentityVerification[]
+
+  @@index([status])
+}
+
+model UserProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName   String
+  lastName    String
+  displayName String
+  phone       String?
+  avatarUrl   String?
+  timezone    String   @default("UTC")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Role_Definition {
+  id          String   @id @default(uuid())
+  key         Role     @unique
+  description String
+  permissions Permission[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String
+  roles       Role_Definition[]
+  createdAt   DateTime @default(now())
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role
+  grantedAt DateTime @default(now())
+  grantedBy String?
+
+  @@unique([userId, role])
+  @@index([role])
+}
+
+model IndividualProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullLegalName   String
+  dateOfBirth     DateTime?
+  nationality     String?
+  countryOfResidence String?
+  idType          String?
+  idNumber        String? // store reference only; sensitive numbers tokenised in prod
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  postalCode      String?
+  country         String?
+  phone           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Company {
+  id                 String   @id @default(uuid())
+  legalName          String
+  tradingName        String?
+  countryOfIncorporation String?
+  registrationNumber String?
+  taxInfo            String?
+  beneficialOwnerInfo String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  postalCode         String?
+  country            String?
+  contactEmail       String?
+  contactPhone       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  members   CompanyMember[]
+  documents CompanyDocument[]
+}
+
+model CompanyMember {
+  id            String   @id @default(uuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position      String?
+  isAuthorisedRepresentative Boolean @default(false)
+  createdAt     DateTime @default(now())
+
+  @@unique([companyId, userId])
+}
+
+model CompanyDocument {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title       String
+  storageKey  String
+  createdAt   DateTime @default(now())
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model LawyerProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  lawFirm           String?
+  barAssociation    String?
+  barNumber         String?
+  jurisdiction      String?
+  yearsOfPractice   Int?
+  arbitrationExperience String?
+  languages         String[] @default([])
+  practiceAreas     String[] @default([])
+  profileSummary    String?
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  documents LawyerDocument[]
+}
+
+model LawyerDocument {
+  id         String   @id @default(uuid())
+  lawyerId   String
+  lawyer     LawyerProfile @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  kind       String   // identity | licence | other
+  title      String
+  storageKey String
+  createdAt  DateTime @default(now())
+}
+
+// ============================================================================
+// ARBITRATOR PANEL
+// ============================================================================
+
+enum AvailabilityStatus {
+  AVAILABLE
+  LIMITED
+  UNAVAILABLE
+}
+
+enum FeeBand {
+  STANDARD
+  SENIOR
+  PREMIUM
+}
+
+enum ArbitratorApprovalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  SUSPENDED
+  REJECTED
+}
+
+model ArbitratorProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName           String
+  professionalTitle  String?
+  photoUrl           String?
+  nationality        String?
+  countryOfResidence String?
+  biography          String?
+  qualifications     String?
+  yearsExperience    Int?
+  casesAsSole        Int      @default(0)
+  casesAsChair       Int      @default(0)
+  casesAsCoArbitrator Int     @default(0)
+  familiarRules      String[] @default([])
+  jurisdictions      String[] @default([])
+  hourlyRate         Decimal? @db.Decimal(12, 2)
+  feeBand            FeeBand  @default(STANDARD)
+  currency           String   @default("USD")
+  availability       AvailabilityStatus @default(AVAILABLE)
+  memberships        String[] @default([])
+  publications       String[] @default([])
+  speakingEngagements String[] @default([])
+  conflictDisclosureStatus String? // last self-disclosure summary
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  approvalStatus     ArbitratorApprovalStatus @default(DRAFT)
+
+  // Undertakings
+  independenceDeclared  Boolean @default(false)
+  impartialityDeclared  Boolean @default(false)
+  confidentialityUndertaking Boolean @default(false)
+  cybersecurityUndertaking   Boolean @default(false)
+
+  cvStorageKey       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  legalFields    ArbitratorExpertise[]
+  languages      ArbitratorLanguage[]
+  availabilitySlots ArbitratorAvailability[]
+  references     ArbitratorReference[]
+  appointments   AppointmentInvitation[]
+  conflictDisclosures ConflictDisclosure[]
+}
+
+enum ExpertiseKind {
+  LEGAL_FIELD
+  INDUSTRY
+}
+
+model ArbitratorExpertise {
+  id           String   @id @default(uuid())
+  arbitratorId String
+  arbitrator   ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  kind         ExpertiseKind
+  field        String   // ArbitrationField key
+  createdAt    DateTime @default(now())
+
+  @@unique([arbitratorId, kind, field])
+  @@index([field])
+}
+
+model ArbitratorLanguage {
+  id           String   @id @default(uuid())
+  arbitratorId String
+  arbitrator   ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  language     String
+  proficiency  String? // native | fluent | working
+
+  @@unique([arbitratorId, language])
+}
+
+model ArbitratorAvailability {
+  id           String   @id @default(uuid())
+  arbitratorId String
+  arbitrator   ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  fromDate     DateTime
+  toDate       DateTime
+  status       AvailabilityStatus @default(AVAILABLE)
+  note         String?
+}
+
+model ArbitratorReference {
+  id           String   @id @default(uuid())
+  arbitratorId String
+  arbitrator   ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  name         String
+  organisation String?
+  contact      String?
+  createdAt    DateTime @default(now())
+}
+
+// ============================================================================
+// CASES
+// ============================================================================
+
+enum CaseStage {
+  DRAFT
+  SUBMITTED
+  FILING_FEE_PENDING
+  ADMINISTRATIVE_REVIEW
+  DEFICIENCY_NOTICE_ISSUED
+  AWAITING_CLAIMANT_CORRECTION
+  CASE_REGISTERED
+  NOTICE_BEING_SERVED
+  AWAITING_RESPONDENT_REGISTRATION
+  AWAITING_RESPONSE
+  RESPONSE_RECEIVED
+  ARBITRATION_TERMS_PENDING
+  TRIBUNAL_APPOINTMENT_PENDING
+  CONFLICT_CHECK
+  ARBITRATOR_ACCEPTANCE_PENDING
+  TRIBUNAL_CONSTITUTED
+  PRELIMINARY_CONFERENCE_SCHEDULED
+  PROCEDURAL_TIMETABLE_ISSUED
+  STATEMENT_OF_CLAIM
+  STATEMENT_OF_DEFENCE
+  COUNTERCLAIM
+  REPLY
+  REJOINDER
+  DOCUMENT_PRODUCTION
+  WITNESS_EVIDENCE
+  EXPERT_EVIDENCE
+  HEARING_PREPARATION
+  HEARING_IN_PROGRESS
+  POST_HEARING_SUBMISSIONS
+  DELIBERATION
+  DRAFT_AWARD
+  AWARD_ISSUED
+  CORRECTION_OR_INTERPRETATION
+  CLOSED
+  SUSPENDED
+  SETTLED
+  WITHDRAWN
+  TERMINATED
+}
+
+enum PartySide {
+  CLAIMANT
+  RESPONDENT
+}
+
+enum CaseRole {
+  CLAIMANT
+  CLAIMANT_REPRESENTATIVE
+  RESPONDENT
+  RESPONDENT_REPRESENTATIVE
+  TRIBUNAL_CHAIR
+  TRIBUNAL_MEMBER
+  TRIBUNAL_SECRETARY
+  CASE_REGISTRAR
+  OBSERVER
+}
+
+model Case {
+  id          String    @id @default(uuid())
+  reference   String    @unique // e.g. GAAP-2026-000123
+  title       String
+  stage       CaseStage @default(DRAFT)
+  filingCapacity String?
+  category    String?
+  industry    String?
+  confidentialitySensitivity String?
+  filedById   String?
+  seat        String?
+  governingLaw String?
+  language    String   @default("en")
+  numberOfArbitrators Int?
+  appointmentMechanism String?
+  onlineConsent Boolean @default(false)
+  electronicServiceConsent Boolean @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  registeredAt DateTime?
+
+  parties          CaseParty[]
+  teamMembers      CaseTeamMember[]
+  agreement        ArbitrationAgreement?
+  claims           Claim[]
+  reliefRequests   ReliefRequest[]
+  statusHistory    CaseStatusHistory[]
+  tribunal         Tribunal?
+  appointments     AppointmentInvitation[]
+  conflictDisclosures ConflictDisclosure[]
+  challenges       ArbitratorChallenge[]
+  documents        Document[]
+  messages         CaseMessage[]
+  proceduralOrders ProceduralOrder[]
+  deadlines        Deadline[]
+  hearings         Hearing[]
+  invoices         Invoice[]
+  feeEstimates     FeeEstimate[]
+  payments         Payment[]
+  awards           Award[]
+  complianceChecks ComplianceCheck[]
+  deliberations    DeliberationNote[]
+
+  @@index([stage])
+}
+
+model CaseParty {
+  id              String   @id @default(uuid())
+  caseId          String
+  case            Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  side            PartySide
+  legalName       String
+  legalStatus     String? // individual | company | other
+  nationality     String?
+  countryOfIncorporation String?
+  registrationNumber String?
+  addressLine1    String?
+  city            String?
+  country         String?
+  email           String?
+  phone           String?
+  serviceInfo     String?
+  linkedUserId    String?
+  linkedCompanyId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  representatives PartyRepresentative[]
+}
+
+model PartyRepresentative {
+  id          String   @id @default(uuid())
+  partyId     String
+  party       CaseParty @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  fullName    String
+  firm        String?
+  email       String?
+  phone       String?
+  lawyerUserId String?
+  powerOfAttorneyKey String?
+  createdAt   DateTime @default(now())
+}
+
+// Defines WHO can touch a case and in WHAT capacity. This is the spine of
+// case-level authorization. Tribunal deliberation access derives only from
+// TRIBUNAL_CHAIR / TRIBUNAL_MEMBER rows here.
+model CaseTeamMember {
+  id        String   @id @default(uuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  caseRole  CaseRole
+  side      PartySide?
+  active    Boolean  @default(true)
+  addedAt   DateTime @default(now())
+  addedBy   String?
+
+  @@unique([caseId, userId, caseRole])
+  @@index([caseId])
+  @@index([userId])
+}
+
+model ArbitrationAgreement {
+  id          String   @id @default(uuid())
+  caseId      String   @unique
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hasClause   Boolean  @default(false)
+  hasSeparateAgreement Boolean @default(false)
+  hasSubmissionAgreement Boolean @default(false)
+  contractName String?
+  contractDate DateTime?
+  clauseText  String?
+  agreementStorageKey String?
+  agreedRules String?
+  proposedRules String?
+  seat        String?
+  proposedSeat String?
+  governingLaw String?
+  language    String?
+  numberOfArbitrators Int?
+  appointmentMechanism String?
+  appointingAuthority String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Claim {
+  id           String   @id @default(uuid())
+  caseId       String
+  case         Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  title        String
+  summaryOfFacts String?
+  legalGrounds String?
+  contractualGrounds String?
+  disputeAroseOn DateTime?
+  contractValue Decimal? @db.Decimal(18, 2)
+  amountClaimed Decimal? @db.Decimal(18, 2)
+  currency     String   @default("USD")
+  interestRequested Boolean @default(false)
+  isCounterclaim Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ReliefRequest {
+  id        String   @id @default(uuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind      String   // monetary | non_monetary | declaratory | interim | urgent
+  description String
+  amount    Decimal? @db.Decimal(18, 2)
+  currency  String?
+  urgent    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model CaseStatusHistory {
+  id        String    @id @default(uuid())
+  caseId    String
+  case      Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromStage CaseStage?
+  toStage   CaseStage
+  note      String?
+  changedBy String?
+  createdAt DateTime  @default(now())
+
+  @@index([caseId])
+}
+
+// ============================================================================
+// TRIBUNAL & APPOINTMENTS
+// ============================================================================
+
+enum TribunalComposition {
+  SOLE
+  THREE_MEMBER
+}
+
+model Tribunal {
+  id          String   @id @default(uuid())
+  caseId      String   @unique
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  composition TribunalComposition
+  constituted Boolean  @default(false)
+  constitutedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members      TribunalMember[]
+  deliberations DeliberationNote[]
+}
+
+enum TribunalRole {
+  CHAIR
+  CO_ARBITRATOR
+  SOLE
+  SECRETARY
+}
+
+model TribunalMember {
+  id           String   @id @default(uuid())
+  tribunalId   String
+  tribunal     Tribunal @relation(fields: [tribunalId], references: [id], onDelete: Cascade)
+  arbitratorUserId String
+  role         TribunalRole
+  nominatedBy  PartySide?
+  acceptedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([tribunalId, arbitratorUserId])
+}
+
+enum AppointmentStatus {
+  INVITED
+  CONFLICT_CHECK
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+  EXPIRED
+}
+
+model AppointmentInvitation {
+  id            String   @id @default(uuid())
+  caseId        String
+  case          Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  arbitratorId  String
+  arbitrator    ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  proposedRole  TribunalRole
+  nominatedBy   PartySide?
+  status        AppointmentStatus @default(INVITED)
+  feeAccepted   Boolean  @default(false)
+  availabilityConfirmed Boolean @default(false)
+  respondedAt   DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([caseId])
+  @@index([arbitratorId])
+}
+
+model ConflictDisclosure {
+  id            String   @id @default(uuid())
+  caseId        String
+  case          Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  arbitratorId  String
+  arbitrator    ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
+  hasConflict   Boolean  @default(false)
+  disclosureText String?
+  independenceDeclared Boolean @default(false)
+  impartialityDeclared Boolean @default(false)
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([caseId])
+}
+
+enum ChallengeStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  UPHELD
+  DISMISSED
+  WITHDRAWN
+}
+
+model ArbitratorChallenge {
+  id            String   @id @default(uuid())
+  caseId        String
+  case          Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  challengedArbitratorUserId String
+  raisedBy      String
+  grounds       String
+  status        ChallengeStatus @default(SUBMITTED)
+  decidedBy     String?
+  decidedAt     DateTime?
+  decisionNote  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============================================================================
+// DOCUMENTS
+// ============================================================================
+
+enum ConfidentialityLevel {
+  PUBLIC
+  CASE_PARTIES
+  PARTY_PRIVATE
+  TRIBUNAL_ONLY
+  ADMIN_ONLY
+}
+
+enum VirusScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+model Document {
+  id              String   @id @default(uuid())
+  caseId          String
+  case            Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseDocumentNumber String
+  exhibitNumber   String?
+  category        String
+  title           String
+  description     String?
+  confidentiality ConfidentialityLevel @default(CASE_PARTIES)
+  visibleToSide   PartySide? // for PARTY_PRIVATE scoping
+  privileged      Boolean  @default(false)
+  archived        Boolean  @default(false)
+  uploadedById    String
+  uploadedBy      User     @relation("UploadedBy", fields: [uploadedById], references: [id])
+  currentVersion  Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  versions  DocumentVersion[]
+  accesses  DocumentAccess[]
+  activity  DocumentActivity[]
+
+  @@unique([caseId, caseDocumentNumber])
+  @@index([caseId])
+}
+
+model DocumentVersion {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version     Int
+  storageKey  String
+  fileName    String
+  mimeType    String
+  fileSize    Int
+  fileHash    String
+  virusScan   VirusScanStatus @default(PENDING)
+  uploadedById String
+  createdAt   DateTime @default(now())
+
+  @@unique([documentId, version])
+}
+
+model DocumentAccess {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId      String?
+  caseRole    CaseRole?
+  canView     Boolean  @default(true)
+  canDownload Boolean  @default(false)
+  grantedBy   String?
+  createdAt   DateTime @default(now())
+}
+
+enum DocumentAction {
+  VIEW
+  DOWNLOAD
+  UPLOAD
+  DELETE
+  RESTORE
+}
+
+model DocumentActivity {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  action      DocumentAction
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+}
+
+// ============================================================================
+// COMMUNICATIONS & NOTIFICATIONS
+// ============================================================================
+
+enum MessageCategory {
+  TRIBUNAL_NOTICE
+  REGISTRAR_NOTICE
+  PARTY_SUBMISSION
+  PROCEDURAL
+  GENERAL
+  ADMIN_PRIVATE
+}
+
+model CaseMessage {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  senderId    String
+  sender      User     @relation("MessageSender", fields: [senderId], references: [id])
+  category    MessageCategory
+  subject     String
+  body        String
+  // Ex parte guard: substantive party-to-tribunal messages must be all-party
+  // visible. Restricted visibility is reserved for administrative categories.
+  restricted  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  recipients  MessageRecipient[]
+
+  @@index([caseId])
+}
+
+model MessageRecipient {
+  id          String   @id @default(uuid())
+  messageId   String
+  message     CaseMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId      String
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  @@unique([messageId, userId])
+}
+
+enum NotificationType {
+  CASE_UPDATE
+  DEADLINE
+  HEARING
+  PAYMENT
+  APPOINTMENT
+  MESSAGE
+  SECURITY
+  SYSTEM
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+}
+
+// ============================================================================
+// PROCEDURAL: ORDERS, DEADLINES, HEARINGS
+// ============================================================================
+
+model ProceduralOrder {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  number      Int
+  title       String
+  body        String
+  issuedById  String
+  issuedAt    DateTime @default(now())
+  documentKey String?
+
+  @@unique([caseId, number])
+}
+
+enum DeadlineStatus {
+  OPEN
+  MET
+  MISSED
+  EXTENDED
+  CANCELLED
+}
+
+model Deadline {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueAt       DateTime
+  timezone    String   @default("UTC")
+  status      DeadlineStatus @default(OPEN)
+  reminderRule String? // e.g. "P7D,P2D,P1D"
+  extendedTo  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([caseId, dueAt])
+}
+
+enum HearingStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  ADJOURNED
+  CANCELLED
+}
+
+model Hearing {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  title       String
+  scheduledStart DateTime
+  scheduledEnd   DateTime?
+  timezone    String   @default("UTC")
+  status      HearingStatus @default(SCHEDULED)
+  provider    String   @default("placeholder")
+  agenda      String?
+  recordingPermitted Boolean @default(false)
+  transcriptKey String?
+  backupContact String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants HearingParticipant[]
+  rooms        HearingRoom[]
+
+  @@index([caseId])
+}
+
+enum HearingRoomKind {
+  TRIBUNAL
+  PARTY_WAITING
+  WITNESS_WAITING
+  BREAKOUT
+  MAIN
+}
+
+model HearingRoom {
+  id          String   @id @default(uuid())
+  hearingId   String
+  hearing     Hearing  @relation(fields: [hearingId], references: [id], onDelete: Cascade)
+  kind        HearingRoomKind
+  name        String
+  joinUrl     String?  // provider-issued, never stored in public dir
+  createdAt   DateTime @default(now())
+}
+
+model HearingParticipant {
+  id          String   @id @default(uuid())
+  hearingId   String
+  hearing     Hearing  @relation(fields: [hearingId], references: [id], onDelete: Cascade)
+  userId      String?
+  displayName String
+  role        String   // tribunal | party | counsel | witness | interpreter | observer
+  identityVerified Boolean @default(false)
+  attendedAt  DateTime?
+  leftAt      DateTime?
+
+  @@index([hearingId])
+}
+
+// ============================================================================
+// FEES & PAYMENTS
+// ============================================================================
+
+model FeeEstimate {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  category    String   // FeeCategory key
+  description String?
+  amount      Decimal  @db.Decimal(18, 2)
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  number      String   @unique
+  status      InvoiceStatus @default(DRAFT)
+  currency    String   @default("USD")
+  subtotal    Decimal  @db.Decimal(18, 2) @default(0)
+  tax         Decimal  @db.Decimal(18, 2) @default(0)
+  total       Decimal  @db.Decimal(18, 2) @default(0)
+  dueAt       DateTime?
+  issuedAt    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allocations PaymentAllocation[]
+  payments    Payment[]
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  invoiceId   String?
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
+  category    String
+  amount      Decimal  @db.Decimal(18, 2)
+  currency    String   @default("USD")
+  status      PaymentStatus @default(PENDING)
+  provider    String   @default("manual")
+  providerRef String?
+  // A party may pay another party's share without prejudice to the tribunal's
+  // final decision on costs.
+  paidByUserId String?
+  onBehalfOfPartyId String?
+  receiptKey  String?
+  recordedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allocations PaymentAllocation[]
+
+  @@index([caseId])
+}
+
+model PaymentAllocation {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentId   String?
+  payment     Payment? @relation(fields: [paymentId], references: [id])
+  partyId     String
+  side        PartySide?
+  shareAmount Decimal  @db.Decimal(18, 2)
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================================
+// AWARDS
+// ============================================================================
+
+enum AwardType {
+  FINAL
+  PARTIAL
+  INTERIM
+  CONSENT
+  COSTS
+  ADDITIONAL
+}
+
+model Award {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  type        AwardType
+  issueDate   DateTime?
+  seat        String?
+  signatureStatus String @default("PENDING") // PENDING | PARTIAL | SIGNED
+  signedDocumentKey String?
+  signatureMetadata String? // JSON: e-sign provider metadata
+  certifiedCopyAvailable Boolean @default(false)
+  correctionStatus String? // NONE | REQUESTED | ISSUED
+  interpretationStatus String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deliveries  AwardDelivery[]
+  corrections CorrectionRequest[]
+}
+
+model AwardDelivery {
+  id          String   @id @default(uuid())
+  awardId     String
+  award       Award    @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  recipientUserId String?
+  recipientLabel String
+  deliveredAt DateTime?
+  downloadedAt DateTime?
+  createdAt   DateTime @default(now())
+}
+
+enum CorrectionKind {
+  CORRECTION
+  INTERPRETATION
+  ADDITIONAL_AWARD
+}
+
+model CorrectionRequest {
+  id          String   @id @default(uuid())
+  awardId     String
+  award       Award    @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  kind        CorrectionKind
+  requestedBy String
+  details     String
+  status      String   @default("SUBMITTED")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================================
+// TRIBUNAL DELIBERATIONS (strictly tribunal-only)
+// ============================================================================
+
+// Deliberation notes are readable ONLY by appointed tribunal members of the
+// same case. No party, lawyer, registrar, admin, or council member may read
+// them unless they are a tribunal member on this case. Enforced in service.
+model DeliberationNote {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  tribunalId  String
+  tribunal    Tribunal @relation(fields: [tribunalId], references: [id], onDelete: Cascade)
+  authorUserId String
+  body        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([caseId])
+}
+
+// ============================================================================
+// CONTENT: NEWS, COURT HIGHLIGHTS, PUBLICATIONS
+// ============================================================================
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model NewsArticle {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  excerpt     String?
+  body        String
+  category    String?
+  tags        String[] @default([])
+  status      ContentStatus @default(DRAFT)
+  authorName  String?
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CourtHighlight {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  courtName   String
+  jurisdiction String
+  caseName    String
+  citation    String?
+  decisionDate DateTime?
+  legalIssue  String
+  summary     String
+  outcome     String?
+  appealStatus String?
+  source      String?
+  authorName  String?
+  status      ContentStatus @default(DRAFT)
+  publishedAt DateTime?
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Publication {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  abstract    String?
+  authorName  String?
+  storageKey  String?
+  externalUrl String?
+  status      ContentStatus @default(DRAFT)
+  publishedAt DateTime?
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================================
+// SESSIONS, AUTH TOKENS, AUDIT, SUPPORT, COMPLIANCE, IDENTITY, SETTINGS
+// ============================================================================
+
+model Session {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  userAgent     String?
+  ipAddress     String?
+  deviceLabel   String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime @default(now())
+  lastUsedAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum LoginOutcome {
+  SUCCESS
+  FAILED
+  LOCKED
+  MFA_REQUIRED
+}
+
+model LoginEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  outcome   LoginOutcome
+  ipAddress String?
+  userAgent String?
+  suspicious Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([email])
+}
+
+enum EmailTokenKind {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model EmailToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      EmailTokenKind
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Append-only via the application layer (no update/delete exposed in UI/API).
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // e.g. DOCUMENT_DOWNLOAD, AWARD_DELIVERY
+  entityType  String?
+  entityId    String?
+  caseId      String?
+  metadata    String?  // JSON
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([caseId])
+  @@index([action])
+  @@index([userId])
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject     String
+  body        String
+  caseId      String?
+  status      SupportStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum ComplianceStatus {
+  PENDING
+  CLEARED
+  FLAGGED
+}
+
+model ComplianceCheck {
+  id          String   @id @default(uuid())
+  caseId      String?
+  case        Case?    @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  kind        String   // conflict | sanctions | aml | quality
+  status      ComplianceStatus @default(PENDING)
+  note        String?
+  reviewedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model IdentityVerification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider    String   @default("placeholder")
+  status      VerificationStatus @default(PENDING)
+  reference   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   // JSON
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}

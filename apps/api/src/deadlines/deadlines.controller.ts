@@ -1,0 +1,35 @@
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { DeadlinesService } from './deadlines.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthUser } from '../auth/types';
+import { CreateDeadlineDto, ExtendDeadlineDto } from './dto';
+
+@ApiTags('deadlines')
+@ApiBearerAuth()
+@Controller()
+@UseGuards(JwtAuthGuard)
+export class DeadlinesController {
+  constructor(private readonly deadlines: DeadlinesService) {}
+
+  @Get('calendar/mine')
+  myCalendar(@CurrentUser() user: AuthUser) {
+    return this.deadlines.myCalendar(user);
+  }
+
+  @Get('cases/:caseId/deadlines')
+  list(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.deadlines.listForCase(user, caseId);
+  }
+
+  @Post('cases/:caseId/deadlines')
+  create(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: CreateDeadlineDto) {
+    return this.deadlines.create(user, caseId, dto);
+  }
+
+  @Patch('deadlines/:id/extend')
+  extend(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExtendDeadlineDto) {
+    return this.deadlines.extend(user, id, dto);
+  }
+}

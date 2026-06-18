@@ -1,0 +1,93 @@
+/* ==========================================================================
+   Design tokens — Global Ad Hoc Arbitration Panel
+   Restrained, prestigious, international. Charcoal / navy / ivory / muted gold.
+   ========================================================================== */
+:root {
+  /* Palette */
+  --c-charcoal-900: #14171c;
+  --c-charcoal-800: #1c2027;
+  --c-charcoal-700: #262b34;
+  --c-navy-900: #0f1b2d;
+  --c-navy-800: #142540;
+  --c-navy-700: #1d3559;
+  --c-ivory: #f7f4ee;
+  --c-warm-white: #fcfbf8;
+  --c-parchment: #efe9dd;
+  --c-stone-300: #d8d2c6;
+  --c-stone-500: #9a9486;
+  --c-ink-700: #3a3f47;
+  --c-ink-500: #5a606b;
+
+  /* Muted gold — used sparingly as an accent only */
+  --c-gold-600: #9a7b3f;
+  --c-gold-500: #b8975a;
+  --c-gold-400: #cdb37f;
+
+  --c-success: #2f6b4f;
+  --c-warning: #9a6b2f;
+  --c-danger: #8c3a3a;
+  --c-info: #2f567f;
+
+  /* Semantic surfaces (light context) */
+  --bg-page: var(--c-warm-white);
+  --bg-surface: #ffffff;
+  --bg-raised: var(--c-ivory);
+  --bg-inverse: var(--c-navy-900);
+  --text-primary: var(--c-charcoal-900);
+  --text-secondary: var(--c-ink-500);
+  --text-on-inverse: var(--c-ivory);
+  --border-subtle: #e6e1d6;
+  --border-strong: var(--c-stone-300);
+  --accent: var(--c-gold-600);
+  --accent-soft: rgba(184, 151, 90, 0.12);
+
+  /* Typography */
+  --font-serif: 'Cormorant Garamond', 'Noto Serif Arabic', Georgia, serif;
+  --font-sans: 'Inter', 'Noto Kufi Arabic', system-ui, -apple-system, sans-serif;
+  --fs-display: clamp(2.6rem, 5vw, 4.2rem);
+  --fs-h1: clamp(2rem, 3.5vw, 3rem);
+  --fs-h2: clamp(1.5rem, 2.4vw, 2.1rem);
+  --fs-h3: 1.35rem;
+  --fs-body: 1rem;
+  --fs-sm: 0.875rem;
+  --fs-xs: 0.78rem;
+  --lh-tight: 1.15;
+  --lh-body: 1.65;
+
+  /* Spacing scale (4px base) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4rem;
+  --sp-9: 6rem;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* Shadows — subtle, never harsh */
+  --shadow-sm: 0 1px 2px rgba(20, 23, 28, 0.06);
+  --shadow-md: 0 6px 24px rgba(15, 27, 45, 0.08);
+  --shadow-lg: 0 18px 48px rgba(15, 27, 45, 0.14);
+
+  --container: 1180px;
+  --transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[dir='rtl'] {
+  --font-sans: 'Noto Kufi Arabic', 'Inter', system-ui, sans-serif;
+  --font-serif: 'Noto Serif Arabic', 'Cormorant Garamond', Georgia, serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
