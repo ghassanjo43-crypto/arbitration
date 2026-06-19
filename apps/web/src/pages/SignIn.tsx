@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
+import { api } from '../lib/api';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email address.'),
@@ -18,7 +19,9 @@ export function SignIn() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
 
@@ -29,6 +32,23 @@ export function SignIn() {
       navigate('/app');
     } catch {
       setServerError('Invalid credentials, or your account requires verification.');
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendMsg(null);
+    const email = getValues('email')?.trim();
+    if (!email) {
+      setResendMsg('Enter your email address above first.');
+      return;
+    }
+    setResending(true);
+    try {
+      await api.post('/auth/resend-verification', { email });
+    } finally {
+      setResending(false);
+      // Generic message regardless of outcome (no account enumeration).
+      setResendMsg('If your account is pending verification, a new verification email has been sent.');
     }
   };
 
@@ -58,6 +78,12 @@ export function SignIn() {
           <p className="center field__hint" style={{ marginTop: 'var(--sp-4)' }}>
             <Link to="/forgot-password">Forgot your password?</Link> · <Link to="/register">Create an account</Link>
           </p>
+          <p className="center field__hint" style={{ marginTop: 'var(--sp-2)' }}>
+            <button type="button" className="link-button" onClick={handleResendVerification} disabled={resending}>
+              {resending ? t('common.loading') : 'Resend verification email'}
+            </button>
+          </p>
+          {resendMsg && <div className="alert" role="status" style={{ marginTop: 'var(--sp-3)' }}>{resendMsg}</div>}
         </form>
       </div>
     </div>

@@ -125,6 +125,25 @@ export class AuthService {
     return { verified: true };
   }
 
+  /**
+   * Re-issues a verification email for an account that is still pending. Any prior
+   * unused verification tokens are invalidated first. Always returns a generic
+   * success response so callers cannot probe which emails are registered.
+   */
+  async resendVerification(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (user && !user.deletedAt && !user.emailVerified && user.status === UserStatus.PENDING_VERIFICATION) {
+      // Expire any outstanding (unused) verification tokens before issuing a fresh one.
+      await this.prisma.emailToken.updateMany({
+        where: { userId: user.id, kind: 'EMAIL_VERIFICATION', usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await this.issueEmailVerification(user.id, user.email);
+      await this.audit.record({ userId: user.id, action: 'EMAIL_VERIFICATION_RESENT', entityType: 'User', entityId: user.id });
+    }
+    return { success: true };
+  }
+
   async login(dto: LoginDto, ctx: RequestContext) {
     const email = dto.email.toLowerCase();
     const user = await this.prisma.user.findUnique({

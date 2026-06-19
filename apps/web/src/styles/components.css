@@ -184,3 +184,17 @@
   transition: all var(--transition);
 }
 .chip[aria-pressed='true'] { background: var(--c-navy-900); color: var(--c-ivory); border-color: var(--c-navy-900); }
+
+/* Button that reads as a text link (for inline actions) */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--c-navy-800);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-button:hover { color: var(--accent); }
+.link-button:disabled { opacity: 0.6; cursor: not-allowed; }

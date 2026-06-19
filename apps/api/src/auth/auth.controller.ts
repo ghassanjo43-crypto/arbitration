@@ -8,6 +8,7 @@ import {
   RefreshDto,
   RegisterDto,
   RequestPasswordResetDto,
+  ResendVerificationDto,
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto';
@@ -46,6 +47,14 @@ export class AuthController {
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.auth.verifyEmail(dto.token);
+  }
+
+  // Re-send a verification email for a still-pending account (rate-limited, enumeration-safe).
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('resend-verification')
+  async resendVerification(@Body() dto: ResendVerificationDto) {
+    await this.auth.resendVerification(dto.email);
+    return { message: 'If an account is pending verification for that address, a new verification email has been sent.' };
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
