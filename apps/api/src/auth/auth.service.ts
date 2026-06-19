@@ -102,6 +102,7 @@ export class AuthService {
     // The account is now created. Email delivery is best-effort and must NOT
     // turn a successful registration into a failure.
     const emailSent = await this.issueEmailVerification(user.id, user.email);
+    await this.notifyAdminsOfRegistration(user.email, requestedRole, `${dto.firstName} ${dto.lastName}`.trim());
     await this.audit.record({
       userId: user.id,
       action: 'USER_REGISTERED',
@@ -112,6 +113,44 @@ export class AuthService {
       metadata: { role: requestedRole, emailSent },
     });
     return { registered: true, emailSent };
+  }
+
+  /**
+   * Notifies the platform administrators that a new account was created.
+   * Recipients come from ADMIN_NOTIFICATION_EMAIL (comma-separated); if unset,
+   * falls back to the active super-administrators' emails. Best-effort — a
+   * failure here is logged and never affects the registration.
+   */
+  private async notifyAdminsOfRegistration(newEmail: string, role: Role, name: string): Promise<void> {
+    try {
+      let recipients: string[] = [];
+      const configured = this.config.get<string>('email.adminNotificationEmail');
+      if (configured) {
+        recipients = configured.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        const supers = await this.prisma.userRole.findMany({
+          where: { role: Role.SUPER_ADMIN, user: { deletedAt: null } },
+          include: { user: { select: { email: true } } },
+        });
+        recipients = [...new Set(supers.map((s) => s.user.email))];
+      }
+      if (recipients.length === 0) return;
+
+      const subject = `New registration: ${newEmail}`;
+      const text =
+        `A new account has been registered on the Arbitration Panel.\n\n` +
+        `Email: ${newEmail}\n` +
+        `Name: ${name || '—'}\n` +
+        `Account type: ${role}\n` +
+        `Registered: ${new Date().toISOString()}\n\n` +
+        `Review and manage users in the administration dashboard.`;
+
+      for (const to of recipients) {
+        await this.email.send({ to, subject, text });
+      }
+    } catch (err) {
+      this.logger.error(`Failed to send admin registration notification for ${newEmail}: ${(err as Error).message}`);
+    }
   }
 
   /**

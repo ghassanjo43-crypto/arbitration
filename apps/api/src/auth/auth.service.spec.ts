@@ -8,6 +8,8 @@ import { AuthService } from './auth.service';
 function setup(opts: {
   existingUser?: Record<string, unknown> | null;
   emailFails?: boolean;
+  adminEmail?: string;
+  superAdmins?: { user: { email: string } }[];
 }) {
   const prisma = {
     user: {
@@ -18,6 +20,7 @@ function setup(opts: {
       create: jest.fn().mockResolvedValue({ id: 'token-id' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    userRole: { findMany: jest.fn().mockResolvedValue(opts.superAdmins ?? []) },
   };
   const passwords = { hash: jest.fn().mockResolvedValue('hashed-password') };
   const email = {
@@ -26,7 +29,11 @@ function setup(opts: {
       : jest.fn().mockResolvedValue(undefined),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const config = { get: jest.fn((k: string) => (k === 'publicWebUrl' ? 'http://localhost:5173' : undefined)) };
+  const config = {
+    get: jest.fn((k: string) =>
+      k === 'publicWebUrl' ? 'http://localhost:5173' : k === 'email.adminNotificationEmail' ? opts.adminEmail : undefined,
+    ),
+  };
   const tokens = {};
 
   const service = new AuthService(
@@ -79,6 +86,22 @@ describe('AuthService.register', () => {
     expect(prisma.emailToken.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.emailToken.create).toHaveBeenCalledTimes(1);
     expect(email.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies the configured admin email when a new account is registered', async () => {
+    const { service, email } = setup({ adminEmail: 'owner@panel.example' });
+    await service.register(dto, {});
+    // Verification email to the user + notification to the admin.
+    expect(email.send).toHaveBeenCalledTimes(2);
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'owner@panel.example', subject: expect.stringContaining('New registration') }),
+    );
+  });
+
+  it('falls back to notifying active super-administrators when no admin email is configured', async () => {
+    const { service, email } = setup({ superAdmins: [{ user: { email: 'super@panel.example' } }] });
+    await service.register(dto, {});
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'super@panel.example' }));
   });
 
   it('existing ACTIVE account → blocked with a generic BadRequest, no new user', async () => {

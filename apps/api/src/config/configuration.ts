@@ -24,7 +24,13 @@ export interface AppConfig {
     signedUrlTtl: number;
     maxUploadMb: number;
   };
-  email: { driver: 'console' | 'smtp' | 'resend'; from: string; resendApiKey?: string };
+  email: {
+    driver: 'console' | 'smtp' | 'resend';
+    from: string;
+    resendApiKey?: string;
+    /** Where new-registration notifications are sent (comma-separated). */
+    adminNotificationEmail?: string;
+  };
   payment: { driver: 'manual' | 'stripe' };
   video: { driver: 'placeholder' | 'zoom' | 'teams' | 'meet' };
   redisUrl: string;
@@ -74,6 +80,7 @@ export default (): AppConfig => ({
     // Falls back to Resend's shared testing sender (works without domain verification).
     from: process.env.EMAIL_FROM ?? 'Arbitration Panel <onboarding@resend.dev>',
     resendApiKey: process.env.RESEND_API_KEY,
+    adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
   },
   payment: { driver: (process.env.PAYMENT_DRIVER as 'manual' | 'stripe') ?? 'manual' },
   video: { driver: (process.env.VIDEO_DRIVER as 'placeholder') ?? 'placeholder' },
