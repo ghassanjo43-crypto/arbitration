@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +18,9 @@ export function SignIn() {
   const { t } = useTranslation();
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Return the user to the page they were trying to reach (e.g. the directory).
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/app';
   const [serverError, setServerError] = useState<string | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
@@ -29,7 +32,7 @@ export function SignIn() {
     setServerError(null);
     try {
       await login(values.email, values.password, values.mfaCode);
-      navigate('/app');
+      navigate(from, { replace: true });
     } catch {
       setServerError('Invalid credentials, or your account requires verification.');
     }

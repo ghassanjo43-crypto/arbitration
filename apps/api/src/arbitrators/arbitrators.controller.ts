@@ -1,13 +1,17 @@
-import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ArbitratorsService } from './arbitrators.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+// The arbitrator directory is available to authenticated users only.
 @ApiTags('arbitrators')
+@ApiBearerAuth()
 @Controller('arbitrators')
+@UseGuards(JwtAuthGuard)
 export class ArbitratorsController {
   constructor(private readonly service: ArbitratorsService) {}
 
-  /** Public directory search. No authentication required. */
+  /** Directory search — requires authentication. */
   @Get()
   search(
     @Query('q') q?: string,

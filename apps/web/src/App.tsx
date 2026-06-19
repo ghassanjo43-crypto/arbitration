@@ -28,8 +28,11 @@ export default function App() {
           <Route path="about" element={<About />} />
           <Route path="how-it-works" element={<HowItWorks />} />
           <Route path="rules" element={<Rules />} />
-          <Route path="arbitrators" element={<ArbitratorDirectory />} />
-          <Route path="arbitrators/:id" element={<ArbitratorProfile />} />
+          {/* Arbitrator directory requires sign-in (still inside the public layout). */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="arbitrators" element={<ArbitratorDirectory />} />
+            <Route path="arbitrators/:id" element={<ArbitratorProfile />} />
+          </Route>
           <Route path="fee-calculator" element={<FeeCalculator />} />
           <Route path="file-a-case" element={<FileACase />} />
           <Route path="lawyer-registration" element={<LawyerRegistration />} />
