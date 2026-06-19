@@ -17,6 +17,9 @@ import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './types';
 
 const REFRESH_COOKIE = 'gaap_refresh';
+// Must match the API global prefix ('api') so the browser sends the cookie to
+// POST /api/auth/refresh. A bare '/auth' would never be sent to '/api/auth/...'.
+const REFRESH_COOKIE_PATH = '/api/auth';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -32,7 +35,7 @@ export class AuthController {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
-      path: '/auth',
+      path: REFRESH_COOKIE_PATH,
       maxAge: 1000 * 60 * 60 * 24 * 14,
     });
   }
@@ -88,7 +91,7 @@ export class AuthController {
     const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     const sessionId = token?.split('.')[0];
     if (sessionId) await this.auth.logout(sessionId, user.id);
-    res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
+    res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
     return { success: true };
   }
 

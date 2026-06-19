@@ -171,13 +171,30 @@ describe('Arbitration platform (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
-    it('rotates a valid refresh token from the login cookie (201 + new access token)', async () => {
+    it('login sets a /api/auth httpOnly cookie; refresh accepts it; logout clears it', async () => {
       const loginRes = await http.post('/api/auth/login').send({ email: 'claimant@e2e.test', password: E2E_PASSWORD });
-      const cookies = loginRes.headers['set-cookie'];
-      expect(cookies).toBeDefined();
-      const res = await http.post('/api/auth/refresh').set('Cookie', cookies).send({});
-      expect(res.status).toBe(201);
-      expect(res.body.accessToken).toBeTruthy();
+      const cookies = loginRes.headers['set-cookie'] as unknown as string[];
+      const refreshCookie = cookies.find((c) => c.startsWith('gaap_refresh='));
+
+      // (3) login sets the cookie scoped to /api/auth, httpOnly.
+      expect(refreshCookie).toBeDefined();
+      expect(refreshCookie).toContain('Path=/api/auth');
+      expect(refreshCookie).toContain('HttpOnly');
+
+      // (4) the cookie is accepted by /api/auth/refresh (browser-compatible Cookie header).
+      const refreshRes = await http.post('/api/auth/refresh').set('Cookie', cookies).send({});
+      expect(refreshRes.status).toBe(201);
+      expect(refreshRes.body.accessToken).toBeTruthy();
+
+      // logout clears the cookie on the same /api/auth path.
+      const logoutRes = await http
+        .post('/api/auth/logout')
+        .set(bearer(loginRes.body.accessToken))
+        .set('Cookie', cookies)
+        .send({});
+      expect(logoutRes.status).toBe(201);
+      const cleared = (logoutRes.headers['set-cookie'] as unknown as string[]).find((c) => c.startsWith('gaap_refresh='));
+      expect(cleared).toContain('Path=/api/auth');
     });
   });
 
