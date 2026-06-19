@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,6 +20,7 @@ type RegisterValues = z.infer<typeof registerSchema>;
 
 export function Register() {
   const [done, setDone] = useState(false);
+  const [emailSent, setEmailSent] = useState(true);
   const [serverError, setServerError] = useState<string | null>(null);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
@@ -28,9 +30,12 @@ export function Register() {
   const onSubmit = async (v: RegisterValues) => {
     setServerError(null);
     try {
-      await api.post('/auth/register', v);
+      const res = await api.post('/auth/register', v);
+      // Registration succeeded even if the verification email could not be sent.
+      setEmailSent(res.data?.emailSent !== false);
       setDone(true);
     } catch {
+      // Only reached for genuine failures (validation, or a blocked active duplicate).
       setServerError('Unable to register with the provided details.');
     }
   };
@@ -40,7 +45,16 @@ export function Register() {
       <PageHeader eyebrow="Get started" title="Create an account" lede="Register as an individual, company, or lawyer. Staff and arbitrator accounts are provisioned by the registry." />
       <div className="section"><div className="container auth-narrow">
         {done ? (
-          <div className="alert">Registration received. Please check your email to verify your account before signing in.</div>
+          emailSent ? (
+            <div className="alert" role="status">
+              Registration successful. Please check your email to verify your account.
+            </div>
+          ) : (
+            <div className="alert alert--legal" role="status">
+              Registration successful, but we could not send the verification email. Please use
+              “Resend verification email” on the <Link to="/sign-in">sign-in page</Link>.
+            </div>
+          )
         ) : (
           <form className="card" onSubmit={handleSubmit(onSubmit)} noValidate>
             {serverError && <div className="alert alert--danger" role="alert">{serverError}</div>}

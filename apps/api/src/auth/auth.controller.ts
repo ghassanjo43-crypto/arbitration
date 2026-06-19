@@ -40,8 +40,9 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto, @Req() req: Request) {
-    await this.auth.register(dto, this.ctx(req));
-    return { message: 'Registration received. Please check your email to verify your account.' };
+    // Returns { registered: true, emailSent: boolean }. A failed verification
+    // email does not fail registration — the account is already created.
+    return this.auth.register(dto, this.ctx(req));
   }
 
   @Post('verify-email')

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -35,6 +36,8 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  private readonly logger = new Logger(AuthService.name);
+
   private hashToken(t: string): string {
     return createHash('sha256').update(t).digest('hex');
   }
@@ -49,9 +52,26 @@ export class AuthService {
       throw new ForbiddenException('This role cannot be self-registered.');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const email = dto.email.toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
-      // Avoid user enumeration: respond the same way as success at controller level.
+      // An account that exists but is still unverified is not a hard duplicate:
+      // re-issue verification and return the same generic success shape, so the
+      // user is guided to verify/resend instead of seeing "Unable to register".
+      if (!existing.deletedAt && !existing.emailVerified && existing.status === UserStatus.PENDING_VERIFICATION) {
+        const emailSent = await this.reissueVerification(existing.id, existing.email);
+        await this.audit.record({
+          userId: existing.id,
+          action: 'REGISTER_PENDING_REISSUE',
+          entityType: 'User',
+          entityId: existing.id,
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          metadata: { emailSent },
+        });
+        return { registered: true, emailSent };
+      }
+      // A verified/active (or otherwise non-pending) account: block the duplicate.
       throw new BadRequestException('Unable to register with the provided details.');
     }
 
@@ -59,7 +79,7 @@ export class AuthService {
     const now = new Date();
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase(),
+        email,
         passwordHash,
         preferredLanguage: dto.preferredLanguage ?? 'en',
         status: UserStatus.PENDING_VERIFICATION,
@@ -78,7 +98,9 @@ export class AuthService {
       },
     });
 
-    await this.issueEmailVerification(user.id, user.email);
+    // The account is now created. Email delivery is best-effort and must NOT
+    // turn a successful registration into a failure.
+    const emailSent = await this.issueEmailVerification(user.id, user.email);
     await this.audit.record({
       userId: user.id,
       action: 'USER_REGISTERED',
@@ -86,12 +108,18 @@ export class AuthService {
       entityId: user.id,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      metadata: { role: requestedRole },
+      metadata: { role: requestedRole, emailSent },
     });
-    return { id: user.id, email: user.email };
+    return { registered: true, emailSent };
   }
 
-  private async issueEmailVerification(userId: string, email: string) {
+  /**
+   * Creates a verification token and attempts to send the verification email.
+   * The token is always persisted; an email-provider failure is logged and
+   * reported via the return value (false) — it never throws. This keeps account
+   * registration successful even when email delivery is down.
+   */
+  private async issueEmailVerification(userId: string, email: string): Promise<boolean> {
     const raw = randomBytes(32).toString('base64url');
     await this.prisma.emailToken.create({
       data: {
@@ -101,12 +129,27 @@ export class AuthService {
         expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
       },
     });
-    const url = `${this.config.get('publicWebUrl')}/verify-email?token=${raw}`;
-    await this.email.send({
-      to: email,
-      subject: 'Verify your Arbitration Panel account',
-      text: `Confirm your email by visiting: ${url}\n\nThis link expires in 24 hours.`,
+    try {
+      const url = `${this.config.get('publicWebUrl')}/verify-email?token=${raw}`;
+      await this.email.send({
+        to: email,
+        subject: 'Verify your Arbitration Panel account',
+        text: `Confirm your email by visiting: ${url}\n\nThis link expires in 24 hours.`,
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(`Verification email failed to send to ${email} (account was created): ${(err as Error).message}`, err as Error);
+      return false;
+    }
+  }
+
+  /** Expires any outstanding verification tokens, then issues + sends a fresh one. */
+  private async reissueVerification(userId: string, email: string): Promise<boolean> {
+    await this.prisma.emailToken.updateMany({
+      where: { userId, kind: 'EMAIL_VERIFICATION', usedAt: null },
+      data: { usedAt: new Date() },
     });
+    return this.issueEmailVerification(userId, email);
   }
 
   async verifyEmail(token: string) {
@@ -133,13 +176,8 @@ export class AuthService {
   async resendVerification(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (user && !user.deletedAt && !user.emailVerified && user.status === UserStatus.PENDING_VERIFICATION) {
-      // Expire any outstanding (unused) verification tokens before issuing a fresh one.
-      await this.prisma.emailToken.updateMany({
-        where: { userId: user.id, kind: 'EMAIL_VERIFICATION', usedAt: null },
-        data: { usedAt: new Date() },
-      });
-      await this.issueEmailVerification(user.id, user.email);
-      await this.audit.record({ userId: user.id, action: 'EMAIL_VERIFICATION_RESENT', entityType: 'User', entityId: user.id });
+      const emailSent = await this.reissueVerification(user.id, user.email);
+      await this.audit.record({ userId: user.id, action: 'EMAIL_VERIFICATION_RESENT', entityType: 'User', entityId: user.id, metadata: { emailSent } });
     }
     return { success: true };
   }
