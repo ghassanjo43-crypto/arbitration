@@ -1,8 +1,18 @@
 import { useState } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { useAuth } from '../../auth/AuthContext';
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
 
 const PRIMARY_LINKS = [
   { to: '/about', key: 'nav.about' },
@@ -15,8 +25,15 @@ const PRIMARY_LINKS = [
 
 export function Header() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+
+  const handleSignOut = async () => {
+    setOpen(false);
+    await logout();
+    navigate('/');
+  };
 
   return (
     <header className="site-header">
@@ -50,11 +67,24 @@ export function Header() {
         <div className="site-header__actions">
           <LanguageSwitcher />
           {user ? (
-            <Link to="/app" className="btn btn--ghost">{t('nav.dashboard')}</Link>
+            <div className="user-menu">
+              <Link to="/app" className="user-chip" title={`${user.displayName} — ${user.email}`}>
+                <span className="user-chip__avatar" aria-hidden="true">{initials(user.displayName)}</span>
+                <span className="user-chip__text">
+                  <span className="user-chip__name">{user.displayName}</span>
+                  <span className="user-chip__hint">{t('nav.dashboard')}</span>
+                </span>
+              </Link>
+              <button type="button" className="user-chip__signout" onClick={handleSignOut}>
+                {t('nav.signOut')}
+              </button>
+            </div>
           ) : (
-            <Link to="/sign-in" className="btn btn--ghost">{t('nav.signIn')}</Link>
+            <>
+              <Link to="/sign-in" className="btn btn--ghost">{t('nav.signIn')}</Link>
+              <Link to="/file-a-case" className="btn btn--gold">{t('common.fileCaseCta')}</Link>
+            </>
           )}
-          <Link to="/file-a-case" className="btn btn--gold">{t('common.fileCaseCta')}</Link>
         </div>
       </div>
     </header>

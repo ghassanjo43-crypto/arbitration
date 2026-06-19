@@ -1,5 +1,8 @@
 {
-  "brand": { "name": "Global Ad Hoc Arbitration Panel", "short": "Arbitration Panel" },
+  "brand": {
+    "name": "Global Ad Hoc Arbitration Panel",
+    "short": "Arbitration Panel"
+  },
   "nav": {
     "home": "Home",
     "about": "About the Panel",
@@ -21,7 +24,8 @@
     "signIn": "Sign In",
     "dashboard": "Dashboard",
     "resources": "Resources",
-    "platform": "Platform"
+    "platform": "Platform",
+    "signOut": "Sign Out"
   },
   "common": {
     "fileCaseCta": "File an Arbitration Case",

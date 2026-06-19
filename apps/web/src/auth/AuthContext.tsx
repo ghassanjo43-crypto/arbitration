@@ -19,19 +19,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await api.post('/auth/refresh', {});
       setAccessToken(data.accessToken);
+      // /auth/me returns the full SessionUser (incl. displayName) — survives refresh.
       const me = await api.get('/auth/me');
-      // /auth/me returns the lean token user; hydrate a SessionUser shape.
-      setUser({
-        id: me.data.id,
-        email: me.data.email,
-        displayName: me.data.email,
-        roles: me.data.roles,
-        permissions: me.data.permissions,
-        preferredLanguage: 'en',
-        mfaEnabled: false,
-        emailVerified: true,
-        status: 'ACTIVE' as SessionUser['status'],
-      });
+      setUser(me.data as SessionUser);
     } catch {
       setUser(null);
       setAccessToken(null);

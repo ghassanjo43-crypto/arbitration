@@ -57,6 +57,53 @@
 }
 .lang-switch__btn[aria-pressed='true'] { background: var(--c-navy-900); color: var(--c-ivory); }
 
+/* Logged-in identity (name + sign out), shown atop every page */
+.user-menu { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0.25rem 0.6rem 0.25rem 0.3rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  transition: border-color var(--transition), background var(--transition);
+}
+.user-chip:hover { border-color: var(--c-navy-800); color: var(--text-primary); background: var(--bg-raised); }
+.user-chip__avatar {
+  flex: none;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--c-navy-900);
+  color: var(--c-gold-400);
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+}
+.user-chip__text { display: flex; flex-direction: column; line-height: 1.05; }
+.user-chip__name { font-size: var(--fs-sm); font-weight: 600; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-chip__hint { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-secondary); }
+.user-chip__signout {
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-navy-900);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.user-chip__signout:hover { border-color: var(--c-danger); color: var(--c-danger); }
+
+@media (max-width: 1040px) {
+  /* Keep the identity + sign out visible on mobile even though other buttons collapse. */
+  .user-menu { margin-inline-start: auto; }
+  .user-chip__hint { display: none; }
+  .user-chip__name { max-width: 9ch; }
+}
+
 @media (max-width: 1040px) {
   .site-nav {
     position: absolute;

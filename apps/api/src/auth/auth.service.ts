@@ -19,6 +19,7 @@ import { TokensService } from './tokens.service';
 import { EmailService } from '../providers/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { LoginDto, RegisterDto } from './dto';
+import { AuthUser } from './types';
 
 interface RequestContext {
   ipAddress?: string;
@@ -150,6 +151,22 @@ export class AuthService {
       data: { usedAt: new Date() },
     });
     return this.issueEmailVerification(userId, email);
+  }
+
+  /** Full session view of the current user (includes display name + status). */
+  async me(authUser: AuthUser) {
+    const u = await this.prisma.user.findUnique({ where: { id: authUser.id }, include: { profile: true } });
+    return {
+      id: authUser.id,
+      email: authUser.email,
+      displayName: u?.profile?.displayName ?? authUser.email,
+      roles: authUser.roles,
+      permissions: authUser.permissions,
+      preferredLanguage: u?.preferredLanguage ?? 'en',
+      mfaEnabled: u?.mfaEnabled ?? false,
+      emailVerified: u?.emailVerified ?? false,
+      status: u?.status ?? 'ACTIVE',
+    };
   }
 
   async verifyEmail(token: string) {
