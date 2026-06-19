@@ -16,6 +16,7 @@ import {
 import { Dashboard } from './pages/app/Dashboard';
 import { CaseWorkspace } from './pages/app/CaseWorkspace';
 import { AdminContent } from './pages/app/AdminContent';
+import { VerifyEmail } from './pages/VerifyEmail';
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="terms" element={<Terms />} />
           <Route path="sign-in" element={<SignIn />} />
           <Route path="register" element={<Register />} />
+          <Route path="verify-email" element={<VerifyEmail />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
 
           <Route path="app" element={<ProtectedRoute />}>
