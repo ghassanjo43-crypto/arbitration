@@ -158,6 +158,29 @@ describe('Arbitration platform (e2e)', () => {
     });
   });
 
+  // ---- Token refresh ----
+  describe('token refresh', () => {
+    it('returns 401 (not 500) when neither a cookie nor a body token is present', async () => {
+      const res = await http.post('/api/auth/refresh').send({});
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('Refresh token required.');
+    });
+
+    it('returns 401 for a malformed refresh token', async () => {
+      const res = await http.post('/api/auth/refresh').send({ refreshToken: 'totally-not-a-valid-token' });
+      expect(res.status).toBe(401);
+    });
+
+    it('rotates a valid refresh token from the login cookie (201 + new access token)', async () => {
+      const loginRes = await http.post('/api/auth/login').send({ email: 'claimant@e2e.test', password: E2E_PASSWORD });
+      const cookies = loginRes.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      const res = await http.post('/api/auth/refresh').set('Cookie', cookies).send({});
+      expect(res.status).toBe(201);
+      expect(res.body.accessToken).toBeTruthy();
+    });
+  });
+
   // ---- Case-level access ----
   describe('case access', () => {
     it('lets a claimant open their own case', async () => {

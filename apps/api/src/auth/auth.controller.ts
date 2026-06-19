@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
@@ -73,6 +73,9 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Body() dto: RefreshDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = req.cookies?.[REFRESH_COOKIE] ?? dto.refreshToken;
+    if (!token) {
+      throw new UnauthorizedException('Refresh token required.');
+    }
     const result = await this.auth.refresh(token);
     this.setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken, expiresIn: result.expiresIn };

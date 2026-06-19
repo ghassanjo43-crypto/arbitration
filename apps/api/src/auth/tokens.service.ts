@@ -65,9 +65,13 @@ export class TokensService {
   }
 
   /** Verifies a refresh token, rotates it, and returns the owning session/user. */
-  async rotate(refreshToken: string): Promise<{ userId: string; sessionId: string; newRefreshToken: string } | null> {
-    const [sessionId] = refreshToken.split('.');
-    if (!sessionId) return null;
+  async rotate(
+    refreshToken: string | undefined | null,
+  ): Promise<{ userId: string; sessionId: string; newRefreshToken: string } | null> {
+    // Missing or malformed tokens (no "<sessionId>.<secret>" shape) are simply invalid.
+    if (typeof refreshToken !== 'string' || !refreshToken.includes('.')) return null;
+    const [sessionId, secret] = refreshToken.split('.');
+    if (!sessionId || !secret) return null;
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
     if (session.refreshTokenHash !== this.hash(refreshToken)) {
