@@ -26,7 +26,6 @@ const COLUMNS = [
     links: [
       { to: '/file-a-case', key: 'nav.fileCase' },
       { to: '/lawyer-registration', key: 'nav.lawyerRegistration' },
-      { to: '/fee-calculator', key: 'nav.feeCalculator' },
       { to: '/faq', key: 'nav.faq' },
       { to: '/contact', key: 'nav.contact' },
     ],
