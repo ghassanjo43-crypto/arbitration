@@ -16,6 +16,7 @@ import {
 import { Dashboard } from './pages/app/Dashboard';
 import { CaseWorkspace } from './pages/app/CaseWorkspace';
 import { AdminContent } from './pages/app/AdminContent';
+import { AdminUsers } from './pages/app/AdminUsers';
 import { VerifyEmail } from './pages/VerifyEmail';
 
 export default function App() {
@@ -50,6 +51,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="cases/:id" element={<CaseWorkspace />} />
             <Route path="admin/content" element={<AdminContent />} />
+            <Route path="admin/users" element={<AdminUsers />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

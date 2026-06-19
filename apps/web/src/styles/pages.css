@@ -113,3 +113,6 @@
 
 .stat { display: flex; flex-direction: column; gap: 4px; }
 .stat strong { font-family: var(--font-serif); font-size: 1.8rem; }
+
+.role-editor { display: grid; gap: 2px; min-width: 220px; }
+.role-editor .check-row { margin-bottom: 0; }
