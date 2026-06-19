@@ -1,6 +1,9 @@
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { PARTY_ROLES, Role } from '@gaap/shared';
+import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
 
 interface FormValues {
@@ -19,6 +22,10 @@ interface FeeResult {
 
 export function FeeCalculator() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // The fee calculator is reserved for clients preparing to register a case.
+  const isClient = !!user && user.roles.some((r) => PARTY_ROLES.includes(r as Role));
+
   const { register, handleSubmit } = useForm<FormValues>({
     defaultValues: { amountInDispute: 500000, currency: 'USD', numberOfArbitrators: 1, expedited: false },
   });
@@ -37,6 +44,32 @@ export function FeeCalculator() {
 
   const fmt = (n: number, currency: string) =>
     new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+
+  // Gate: only clients (individuals, companies, lawyers) preparing a filing may use it.
+  if (!isClient) {
+    return (
+      <div className="section">
+        <div className="container narrow">
+          <header className="page-head">
+            <p className="eyebrow">{t('nav.platform')}</p>
+            <h1>{t('fees.title')}</h1>
+          </header>
+          <div className="alert alert--legal">
+            The fee calculator is available to clients preparing to register a case.
+            {user
+              ? ' Your current account type does not file cases, so the calculator is not enabled.'
+              : ' Please sign in or create a client account to estimate the cost of your arbitration.'}
+          </div>
+          {!user && (
+            <div style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'var(--sp-4)' }}>
+              <Link to="/sign-in" className="btn btn--ghost">{t('nav.signIn')}</Link>
+              <Link to="/register" className="btn btn--gold">Create an account</Link>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="section">

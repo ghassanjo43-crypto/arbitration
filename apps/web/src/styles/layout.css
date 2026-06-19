@@ -32,10 +32,11 @@
 .brand__name--light { color: var(--c-ivory); }
 .brand__sub { font-size: var(--fs-xs); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-secondary); }
 
-.site-nav { display: flex; gap: var(--sp-5); margin-inline-start: auto; }
+.site-nav { display: flex; gap: var(--sp-4); margin-inline-start: auto; }
 .site-nav__link {
-  font-size: var(--fs-sm);
+  font-size: 0.8rem;
   font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text-primary);
   padding-block: var(--sp-2);
   border-bottom: 2px solid transparent;

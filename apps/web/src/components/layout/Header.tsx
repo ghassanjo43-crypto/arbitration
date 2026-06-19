@@ -19,8 +19,8 @@ const PRIMARY_LINKS = [
   { to: '/how-it-works', key: 'nav.howItWorks' },
   { to: '/arbitrators', key: 'nav.arbitrators' },
   { to: '/rules', key: 'nav.rules' },
-  { to: '/fee-calculator', key: 'nav.feeCalculator' },
   { to: '/news', key: 'nav.news' },
+  { to: '/contact', key: 'nav.contact' },
 ];
 
 export function Header() {

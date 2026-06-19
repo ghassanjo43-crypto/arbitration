@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { FILING_CAPACITIES } from '@gaap/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -73,6 +73,9 @@ export function FileACase() {
     <>
       <PageHeader eyebrow="File a Case" title="Notice of Arbitration" lede="A guided, multi-step filing. You can save a draft and return at any time." />
       <div className="section"><div className="container">
+        <p style={{ marginBottom: 'var(--sp-5)' }}>
+          <Link to="/fee-calculator" className="btn btn--ghost">Estimate fees with the fee calculator →</Link>
+        </p>
         <div className="filing-layout">
           <ol className="filing-steps" aria-label="Filing steps">
             {STEPS.map((s, i) => (
