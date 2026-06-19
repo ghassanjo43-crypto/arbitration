@@ -24,7 +24,7 @@ export interface AppConfig {
     signedUrlTtl: number;
     maxUploadMb: number;
   };
-  email: { driver: 'console' | 'smtp'; from: string };
+  email: { driver: 'console' | 'smtp' | 'resend'; from: string; resendApiKey?: string };
   payment: { driver: 'manual' | 'stripe' };
   video: { driver: 'placeholder' | 'zoom' | 'teams' | 'meet' };
   redisUrl: string;
@@ -70,8 +70,10 @@ export default (): AppConfig => ({
     maxUploadMb: parseInt(process.env.MAX_UPLOAD_MB ?? '100', 10),
   },
   email: {
-    driver: (process.env.EMAIL_DRIVER as 'console' | 'smtp') ?? 'console',
-    from: process.env.EMAIL_FROM ?? 'Arbitration Panel <no-reply@arbitration.example>',
+    driver: (process.env.EMAIL_DRIVER as 'console' | 'smtp' | 'resend') ?? 'console',
+    // Falls back to Resend's shared testing sender (works without domain verification).
+    from: process.env.EMAIL_FROM ?? 'Arbitration Panel <onboarding@resend.dev>',
+    resendApiKey: process.env.RESEND_API_KEY,
   },
   payment: { driver: (process.env.PAYMENT_DRIVER as 'manual' | 'stripe') ?? 'manual' },
   video: { driver: (process.env.VIDEO_DRIVER as 'placeholder') ?? 'placeholder' },
