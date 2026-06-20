@@ -41,3 +41,27 @@ export class RecordEventDto {
   @IsOptional() @Type(() => Date) effectiveDate?: Date;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
 }
+
+/**
+ * Record an authorised, agreed modification of a rule for ONE case. Immutable:
+ * the engine preserves the original value alongside the override and authority.
+ */
+export class RecordOverrideDto {
+  @IsString() ruleId!: string;
+  @IsString() field!: string;
+  @IsString() overrideValue!: string;
+  @IsOptional() @IsString() originalValue?: string;
+  @IsOptional() @IsString() reason?: string;
+  @IsOptional() @IsString() authorityBasis?: string; // PARTY_AGREEMENT | TRIBUNAL_DIRECTION
+}
+
+/**
+ * Record a tribunal/mandatory-law exception: a procedural step modified to
+ * preserve fairness/due process, or displaced by mandatory law of the seat.
+ */
+export class RecordExceptionDto {
+  @IsOptional() @IsString() ruleId?: string;
+  @IsString() reason!: string;
+  @IsOptional() @IsBoolean() mandatoryLaw?: boolean;
+  @IsOptional() @IsString() authorityBasis?: string; // TRIBUNAL | APPOINTING_AUTHORITY | MANDATORY_LAW
+}

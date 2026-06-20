@@ -11,7 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { AuthUser } from '../auth/types';
-import { AcceptRulesDto, AssignRuleSetDto, RecordEventDto } from './dto';
+import { AcceptRulesDto, AssignRuleSetDto, RecordEventDto, RecordOverrideDto, RecordExceptionDto } from './dto';
+import { RuleEngineService } from './rule-engine.service';
 
 interface RequestContext {
   ipAddress?: string;
@@ -24,6 +25,7 @@ export class RulesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly engine: RuleEngineService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -261,11 +263,95 @@ export class RulesService {
       caseId,
       metadata: { type: dto.type },
     });
-    return event;
+
+    // The engine reacts to the event within the case's pinned rule version:
+    // materialising deadlines and recording advisory worklist items. It never
+    // decides merits, fees or stage on its own.
+    const executions = await this.engine.applyEvent({
+      caseId,
+      eventId: event.id,
+      eventType: event.type,
+      actorUserId: user.id,
+    });
+
+    return { event, executions };
   }
 
   async listEvents(user: AuthUser, caseId: string) {
     await this.access.assertCanAccessCase(user, caseId);
     return this.prisma.caseProceduralEvent.findMany({ where: { caseId }, orderBy: { occurredAt: 'asc' } });
+  }
+
+  // ---------------------------------------------------------------------------
+  // ENGINE EXECUTIONS, OVERRIDES & EXCEPTIONS
+  // ---------------------------------------------------------------------------
+
+  /** The engine's action log for a case (provenance of every automated step). */
+  async listExecutions(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    return this.prisma.caseRuleExecution.findMany({
+      where: { caseId },
+      orderBy: { executedAt: 'asc' },
+      include: { rule: { select: { number: true, title: true } } },
+    });
+  }
+
+  /**
+   * Record an authorised override of a rule for this case (agreed modification).
+   * Immutable: the original value and authority are preserved. Only the registry
+   * or the tribunal may record an override; later amendments never touch it.
+   */
+  async recordOverride(user: AuthUser, caseId: string, dto: RecordOverrideDto) {
+    const m = await this.access.assertCanAccessCase(user, caseId);
+    if (!m.isTribunal && !user.permissions.includes(Permission.CASE_REGISTER)) {
+      throw new ForbiddenException('Only the registry or the tribunal may record a rule override.');
+    }
+    const rule = await this.prisma.rule.findUnique({ where: { id: dto.ruleId } });
+    if (!rule) throw new NotFoundException('Rule not found.');
+
+    const override = await this.prisma.caseRuleOverride.create({
+      data: {
+        caseId,
+        ruleId: dto.ruleId,
+        field: dto.field,
+        originalValue: dto.originalValue,
+        overrideValue: dto.overrideValue,
+        reason: dto.reason,
+        authorisedById: user.id,
+        authorityBasis: dto.authorityBasis ?? (m.isTribunal ? 'TRIBUNAL_DIRECTION' : 'PARTY_AGREEMENT'),
+      },
+    });
+    await this.prisma.ruleAuditLog.create({
+      data: { caseId, ruleId: dto.ruleId, action: 'OVERRIDE_RECORDED', actorUserId: user.id, detail: JSON.stringify({ field: dto.field, overrideId: override.id }) },
+    });
+    await this.audit.record({ userId: user.id, action: 'CASE_RULE_OVERRIDE', entityType: 'CaseRuleOverride', entityId: override.id, caseId, metadata: { ruleId: dto.ruleId, field: dto.field } });
+    return override;
+  }
+
+  /**
+   * Record a tribunal/mandatory-law exception. The portal administrator cannot
+   * override tribunal decisions, so only the tribunal (or a mandatory-law basis)
+   * may displace a procedural step.
+   */
+  async recordException(user: AuthUser, caseId: string, dto: RecordExceptionDto) {
+    const m = await this.access.assertCanAccessCase(user, caseId);
+    if (!m.isTribunal && !dto.mandatoryLaw && !user.permissions.includes(Permission.CASE_REGISTER)) {
+      throw new ForbiddenException('Only the tribunal may record a procedural exception (absent a mandatory-law basis).');
+    }
+    const exception = await this.prisma.caseRuleException.create({
+      data: {
+        caseId,
+        ruleId: dto.ruleId,
+        reason: dto.reason,
+        mandatoryLaw: dto.mandatoryLaw ?? false,
+        authorisedById: user.id,
+        authorityBasis: dto.authorityBasis ?? (dto.mandatoryLaw ? 'MANDATORY_LAW' : 'TRIBUNAL'),
+      },
+    });
+    await this.prisma.ruleAuditLog.create({
+      data: { caseId, ruleId: dto.ruleId, action: 'EXCEPTION_RECORDED', actorUserId: user.id, detail: JSON.stringify({ exceptionId: exception.id, mandatoryLaw: exception.mandatoryLaw }) },
+    });
+    await this.audit.record({ userId: user.id, action: 'CASE_RULE_EXCEPTION', entityType: 'CaseRuleException', entityId: exception.id, caseId, metadata: { ruleId: dto.ruleId, mandatoryLaw: exception.mandatoryLaw } });
+    return exception;
   }
 }

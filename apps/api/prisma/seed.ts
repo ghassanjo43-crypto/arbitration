@@ -20,6 +20,7 @@ import {
   ShareStatus,
   LedgerEntryKind,
   DepositStatus,
+  RuleActionKind,
 } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { computeDeadline } from '../src/deadlines/deadline-engine';
@@ -584,7 +585,86 @@ async function seedDepositWorkflow(caseId: string, registrarId: string) {
   await prisma.depositRequest.update({ where: { id: request.id }, data: { status: DepositStatus.PAID } });
 }
 
-export { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow };
+/**
+ * Backfill the normalized engine graph (RuleTrigger/RuleAction + requirement
+ * tables) from the scalar fields already present on each Rule. Idempotent: every
+ * write is guarded so it is safe to run on every deploy. This is what makes the
+ * existing rules *operational* — the engine resolves triggers from these rows.
+ */
+async function backfillEngineGraph() {
+  const rules = await prisma.rule.findMany({ include: { deadlineDefinitions: true } });
+  let triggers = 0;
+  let actions = 0;
+
+  for (const rule of rules) {
+    // 1) One trigger per deadline definition, with a CREATE_DEADLINE action.
+    for (const def of rule.deadlineDefinitions) {
+      const trigger = await upsertTrigger(rule.id, def.triggerEvent, `Materialise deadline: ${def.label}`);
+      triggers++;
+      actions += await ensureAction(trigger.id, RuleActionKind.CREATE_DEADLINE, def.key, null);
+    }
+
+    // 2) A trigger on the rule's own triggeringEvent (if any) carrying advisory
+    //    actions derived from the rule's scalar consequences.
+    if (rule.triggeringEvent) {
+      const trigger = await upsertTrigger(rule.id, rule.triggeringEvent, rule.permittedAction ?? rule.title);
+      triggers++;
+      const isCommencement = /commenc/i.test(rule.title) || /commenc/i.test(rule.permittedAction ?? '');
+      if (isCommencement) {
+        actions += await ensureAction(trigger.id, RuleActionKind.RECORD_COMMENCEMENT, null, rule.triggeringEvent);
+      }
+      if (rule.requiredNotice) {
+        actions += await ensureAction(trigger.id, RuleActionKind.REQUIRE_NOTICE, null, rule.requiredNotice);
+      }
+      if (rule.feeConsequence) {
+        actions += await ensureAction(trigger.id, RuleActionKind.ASSESS_FEE, null, `RULE_${rule.number}`);
+      }
+      for (const doc of rule.requiredDocuments) {
+        actions += await ensureAction(trigger.id, RuleActionKind.REQUIRE_DOCUMENT, null, doc);
+      }
+    }
+
+    // 3) Requirement tables (typed) for completeness.
+    for (const doc of rule.requiredDocuments) {
+      await prisma.ruleDocumentRequirement.upsert({
+        where: { ruleId_key: { ruleId: rule.id, key: slugKey(doc) } },
+        update: {},
+        create: { ruleId: rule.id, key: slugKey(doc), label: doc, mandatory: true },
+      });
+    }
+    if (rule.feeConsequence) {
+      await prisma.ruleFeeDefinition.upsert({
+        where: { ruleId_feeCode: { ruleId: rule.id, feeCode: `RULE_${rule.number}` } },
+        update: {},
+        create: { ruleId: rule.id, feeCode: `RULE_${rule.number}`, description: rule.feeConsequence },
+      });
+    }
+  }
+
+  console.log(`Engine graph backfilled: ${triggers} triggers, ${actions} actions across ${rules.length} rules.`);
+}
+
+async function upsertTrigger(ruleId: string, eventType: string, description: string) {
+  return prisma.ruleTrigger.upsert({
+    where: { ruleId_eventType: { ruleId, eventType } },
+    update: {},
+    create: { ruleId, eventType, description },
+  });
+}
+
+/** Create an action only if an equivalent one does not already exist. Returns 1 if created, else 0. */
+async function ensureAction(triggerId: string, kind: RuleActionKind, definitionKey: string | null, targetKey: string | null): Promise<number> {
+  const existing = await prisma.ruleAction.findFirst({ where: { triggerId, kind, definitionKey, targetKey } });
+  if (existing) return 0;
+  await prisma.ruleAction.create({ data: { triggerId, kind, definitionKey, targetKey } });
+  return 1;
+}
+
+function slugKey(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+}
+
+export { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow, backfillEngineGraph };
 
 if (require.main === module) {
   main()

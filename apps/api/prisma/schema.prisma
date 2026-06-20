@@ -466,6 +466,12 @@ model Case {
   depositRequests DepositRequest[]
   ledgerEntries   FinancialLedgerEntry[]
 
+  // Normalized rules engine
+  ruleExecutions CaseRuleExecution[]
+  ruleOverrides  CaseRuleOverride[]
+  ruleExceptions CaseRuleException[]
+  ruleAuditLogs  RuleAuditLog[]
+
   @@index([stage])
 }
 
@@ -1102,6 +1108,17 @@ model Rule {
   deadlineDefinitions RuleDeadlineDefinition[]
   generatedDeadlines  Deadline[]
 
+  // Normalized operational graph (engine reacts to triggers → actions).
+  triggers             RuleTrigger[]
+  noticeRequirements   RuleNoticeRequirement[]
+  documentRequirements RuleDocumentRequirement[]
+  feeDefinitions       RuleFeeDefinition[]
+  permissionReqs       RulePermissionRequirement[]
+  executions           CaseRuleExecution[]
+  overrides            CaseRuleOverride[]
+  exceptions           CaseRuleException[]
+  ruleAuditLogs        RuleAuditLog[]
+
   @@unique([versionId, number])
   @@index([versionId])
   @@index([triggeringEvent])
@@ -1195,6 +1212,7 @@ model CaseProceduralEvent {
   createdAt     DateTime  @default(now())
 
   generatedDeadlines Deadline[]
+  ruleExecutions     CaseRuleExecution[]
 
   @@index([caseId])
   @@index([type])
@@ -1990,4 +2008,197 @@ model FinancialLedgerEntry {
   createdAt    DateTime        @default(now())
 
   @@index([caseId])
+}
+
+// ============================================================================
+// NORMALIZED RULES ENGINE (operational trigger → action graph)
+//
+// Existing scalar fields on `Rule` (triggeringEvent, requiredNotice, ...) are
+// retained for backwards compatibility and the public site; these tables make
+// the same intent operational so the engine can act on a case automatically.
+// A reusable seed top-up backfills these rows from the scalar fields.
+// ============================================================================
+
+enum RuleActionKind {
+  CREATE_DEADLINE // materialise a CaseDeadline from a RuleDeadlineDefinition
+  REQUIRE_NOTICE // a formal notice must be served
+  REQUIRE_DOCUMENT // a document/filing is required
+  ASSESS_FEE // a fee/deposit consequence applies
+  ADVANCE_STAGE // suggest a case-stage transition (never auto-decides merits)
+  FLAG_DEFAULT // raise a default/non-participation flag for review
+  RECORD_COMMENCEMENT // mark the arbitration commencement date
+}
+
+enum RuleExecutionStatus {
+  EXECUTED
+  SKIPPED // preconditions not met (e.g. definition missing)
+  FAILED
+  SUPERSEDED // later overridden by an authorised override/exception
+}
+
+// A condition that activates a rule: a procedural event type, optionally guarded.
+model RuleTrigger {
+  id            String  @id @default(uuid())
+  ruleId        String
+  rule          Rule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  eventType     String // CaseProceduralEvent.type that fires this trigger
+  description   String?
+  descriptionAr String?
+  conditionJson String? // optional JSON guard evaluated against event metadata
+  active        Boolean @default(true)
+  sortOrder     Int     @default(0)
+
+  actions RuleAction[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, eventType])
+  @@index([eventType])
+}
+
+// What the engine does when a trigger fires.
+model RuleAction {
+  id            String         @id @default(uuid())
+  triggerId     String
+  trigger       RuleTrigger    @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+  kind          RuleActionKind
+  // For CREATE_DEADLINE: the RuleDeadlineDefinition.key to materialise.
+  definitionKey String?
+  // For REQUIRE_NOTICE / REQUIRE_DOCUMENT / ASSESS_FEE: a stable reference key.
+  targetKey     String?
+  paramsJson    String? // additional parameters (JSON)
+  sortOrder     Int            @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([triggerId])
+}
+
+// A formal notice a rule requires (Chapter 2 service linkage).
+model RuleNoticeRequirement {
+  id            String     @id @default(uuid())
+  ruleId        String
+  rule          Rule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  noticeType    NoticeType
+  recipientRole CaseRole?
+  description   String?
+  descriptionAr String?
+
+  @@index([ruleId])
+}
+
+// A document/filing a rule requires.
+model RuleDocumentRequirement {
+  id        String  @id @default(uuid())
+  ruleId    String
+  rule      Rule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  key       String // stable key, e.g. PROOF_OF_AUTHORITY
+  label     String
+  labelAr   String?
+  mandatory Boolean @default(true)
+
+  @@unique([ruleId, key])
+}
+
+// A fee/deposit consequence a rule defines.
+model RuleFeeDefinition {
+  id            String   @id @default(uuid())
+  ruleId        String
+  rule          Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  feeCode       String // e.g. FILING_FEE, INITIAL_DEPOSIT
+  basis         FeeBasis @default(FLAT)
+  amount        Decimal? @db.Decimal(18, 2)
+  currency      String   @default("USD")
+  description   String?
+  descriptionAr String?
+
+  @@unique([ruleId, feeCode])
+}
+
+// A permission/role a rule requires to perform its action.
+model RulePermissionRequirement {
+  id          String  @id @default(uuid())
+  ruleId      String
+  rule        Rule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  permission  String // Permission enum value (string) or role name
+  description String?
+
+  @@index([ruleId])
+}
+
+// An authorised, recorded modification of a rule for ONE case (agreed by the
+// parties). Immutable: preserves the original and the override value + authority.
+model CaseRuleOverride {
+  id             String   @id @default(uuid())
+  caseId         String
+  case           Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  ruleId         String
+  rule           Rule     @relation(fields: [ruleId], references: [id])
+  field          String // which rule aspect is overridden, e.g. DEADLINE_DAYS
+  originalValue  String?
+  overrideValue  String
+  reason         String?
+  authorisedById String?
+  authorityBasis String? // PARTY_AGREEMENT | TRIBUNAL_DIRECTION
+  createdAt      DateTime @default(now())
+
+  @@index([caseId])
+  @@index([ruleId])
+}
+
+// A tribunal/mandatory-law exception: a procedural step modified to preserve
+// fairness/due process, or displaced by mandatory law of the seat. Immutable.
+model CaseRuleException {
+  id             String   @id @default(uuid())
+  caseId         String
+  case           Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  ruleId         String?
+  rule           Rule?    @relation(fields: [ruleId], references: [id])
+  reason         String
+  mandatoryLaw   Boolean  @default(false) // true = displaced by mandatory law of the seat
+  authorisedById String?
+  authorityBasis String? // TRIBUNAL | APPOINTING_AUTHORITY | MANDATORY_LAW
+  createdAt      DateTime @default(now())
+
+  @@index([caseId])
+}
+
+// Provenance: every concrete action the engine took on a case, with the event
+// and rule that produced it and the entity it created.
+model CaseRuleExecution {
+  id                String               @id @default(uuid())
+  caseId            String
+  case              Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  ruleId            String
+  rule              Rule                 @relation(fields: [ruleId], references: [id])
+  triggerEventId    String?
+  triggerEvent      CaseProceduralEvent? @relation(fields: [triggerEventId], references: [id])
+  actionKind        RuleActionKind
+  status            RuleExecutionStatus  @default(EXECUTED)
+  detail            String? // JSON
+  createdEntityType String? // Deadline | FormalNotice | DepositRequest | ...
+  createdEntityId   String?
+  executedAt        DateTime             @default(now())
+
+  @@index([caseId])
+  @@index([ruleId])
+  @@index([triggerEventId])
+}
+
+// Append-only audit log specific to rule lifecycle and engine execution.
+// Normal users/admins must not edit or delete these rows.
+model RuleAuditLog {
+  id               String   @id @default(uuid())
+  ruleSetVersionId String?
+  ruleId           String?
+  rule             Rule?    @relation(fields: [ruleId], references: [id])
+  caseId           String?
+  case             Case?    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  action           String // RULE_TRIGGER_FIRED | RULE_ACTION_EXECUTED | OVERRIDE_RECORDED ...
+  actorUserId      String?
+  detail           String? // JSON
+  createdAt        DateTime @default(now())
+
+  @@index([caseId])
+  @@index([ruleId])
 }

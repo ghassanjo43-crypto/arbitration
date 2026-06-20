@@ -5,7 +5,7 @@ import { RulesService } from './rules.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { AcceptRulesDto, AssignRuleSetDto, RecordEventDto } from './dto';
+import { AcceptRulesDto, AssignRuleSetDto, RecordEventDto, RecordOverrideDto, RecordExceptionDto } from './dto';
 
 @ApiTags('rules')
 @Controller('rules')
@@ -68,5 +68,20 @@ export class CaseRulesController {
   @Post('cases/:caseId/procedural-events')
   recordEvent(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: RecordEventDto) {
     return this.rules.recordEvent(user, caseId, dto);
+  }
+
+  @Get('cases/:caseId/rule-executions')
+  listExecutions(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.rules.listExecutions(user, caseId);
+  }
+
+  @Post('cases/:caseId/rule-overrides')
+  recordOverride(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: RecordOverrideDto) {
+    return this.rules.recordOverride(user, caseId, dto);
+  }
+
+  @Post('cases/:caseId/rule-exceptions')
+  recordException(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: RecordExceptionDto) {
+    return this.rules.recordException(user, caseId, dto);
   }
 }

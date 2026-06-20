@@ -9,7 +9,7 @@
  * cases, documents, etc. are never modified or deleted.
  */
 import { NoticeType, NoticeStatus, DeliveryChannel, DeliveryOutcome, DayKind } from '@prisma/client';
-import { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow } from './seed';
+import { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow, backfillEngineGraph } from './seed';
 import { computeDeadline } from '../src/deadlines/deadline-engine';
 
 async function main() {
@@ -85,6 +85,9 @@ async function main() {
       });
     }
   }
+
+  // --- Backfill the normalized engine graph from Rule scalar fields ---
+  await backfillEngineGraph();
 
   // --- Fee schedule (create once) ---
   if (!(await prisma.feeSchedule.findUnique({ where: { code: 'GAAP_DEFAULT_FEES' } }))) {
