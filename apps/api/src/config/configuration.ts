@@ -30,6 +30,8 @@ export interface AppConfig {
     resendApiKey?: string;
     /** Where new-registration notifications are sent (comma-separated). */
     adminNotificationEmail?: string;
+    /** Where successful-login notifications are sent (comma-separated). */
+    adminLoginNotificationEmail?: string;
   };
   payment: { driver: 'manual' | 'stripe' };
   video: { driver: 'placeholder' | 'zoom' | 'teams' | 'meet' };
