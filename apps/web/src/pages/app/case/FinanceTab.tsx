@@ -14,6 +14,17 @@ interface Finance {
   summary: { invoiced: number; paid: number; outstanding: number };
 }
 
+interface DepositAllocation {
+  id: string; partyId: string; side?: string | null; shareAmount: string; paidAmount: string; status: string;
+  paidBySubstitutePartyId?: string | null;
+}
+interface DepositRequest {
+  id: string; title: string; totalAmount: string; currency: string; allocationMethod: string; status: string;
+  dueAt?: string | null; allocations: DepositAllocation[];
+}
+interface LedgerEntry { id: string; kind: string; description: string; amount: string; currency: string; createdAt: string; }
+interface DepositsData { requests: DepositRequest[]; ledger: LedgerEntry[]; balance: number; }
+
 const money = (n: number | string, ccy = 'USD') =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: ccy, maximumFractionDigits: 0 }).format(Number(n));
 
@@ -24,6 +35,13 @@ export function FinanceTab({ caseId }: { caseId: string }) {
   const canPay = !!user?.permissions.includes(Permission.PAYMENT_RECORD);
 
   const { data, isLoading } = useQuery<Finance>({ queryKey: ['finance', caseId], queryFn: async () => (await api.get(`/cases/${caseId}/finance`)).data });
+  const deposits = useQuery<DepositsData>({ queryKey: ['deposits', caseId], queryFn: async () => (await api.get(`/cases/${caseId}/deposits`)).data });
+
+  const shareTone = (s: string) =>
+    s === 'PAID' ? 'badge--success'
+      : s === 'PAID_BY_SUBSTITUTE' ? 'badge--gold'
+        : s === 'IN_DEFAULT' ? 'badge--danger'
+          : 'badge--info';
 
   const [invAmount, setInvAmount] = useState('');
   const createInvoice = useMutation({
@@ -99,6 +117,56 @@ export function FinanceTab({ caseId }: { caseId: string }) {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card">
+        <h3 className="card__title">Deposits & allocations</h3>
+        {deposits.data?.requests.length ? deposits.data.requests.map((r) => (
+          <div key={r.id} className="card" style={{ background: 'var(--bg-raised)', marginTop: 'var(--sp-3)' }}>
+            <div className="dash-head">
+              <strong>{r.title}</strong>
+              <span className="badge badge--info">{r.status.replaceAll('_', ' ')}</span>
+            </div>
+            <p className="field__hint">
+              {money(r.totalAmount, r.currency)} · {r.allocationMethod.replaceAll('_', ' ')}
+              {r.dueAt ? ` · due ${new Date(r.dueAt).toLocaleDateString()}` : ''}
+            </p>
+            <table className="table">
+              <thead><tr><th>Party</th><th>Share</th><th>Paid</th><th>Status</th></tr></thead>
+              <tbody>
+                {r.allocations.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.side ?? '—'}</td>
+                    <td>{money(a.shareAmount, r.currency)}</td>
+                    <td>{money(a.paidAmount, r.currency)}</td>
+                    <td>
+                      <span className={`badge ${shareTone(a.status)}`}>{a.status.replaceAll('_', ' ')}</span>
+                      {a.paidBySubstitutePartyId && <span className="field__hint"> (substitute, w/o prejudice)</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )) : <p className="muted">No deposit requests.</p>}
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <table className="table">
+          <thead><tr><th>Ledger</th><th>Type</th><th style={{ textAlign: 'end' }}>Amount</th></tr></thead>
+          <tbody>
+            {deposits.data?.ledger.length ? deposits.data.ledger.map((e) => (
+              <tr key={e.id}>
+                <td>{e.description}</td>
+                <td><span className="badge">{e.kind.replaceAll('_', ' ')}</span></td>
+                <td style={{ textAlign: 'end', color: Number(e.amount) < 0 ? 'var(--danger)' : 'inherit' }}>{money(e.amount, e.currency)}</td>
+              </tr>
+            )) : <tr><td colSpan={3}><span className="muted">No ledger entries.</span></td></tr>}
+            {deposits.data && (
+              <tr><td><strong>Balance on account</strong></td><td /><td style={{ textAlign: 'end' }}><strong>{money(deposits.data.balance)}</strong></td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

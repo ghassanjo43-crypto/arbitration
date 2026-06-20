@@ -462,6 +462,10 @@ model Case {
   proceduralEvents CaseProceduralEvent[]
   formalNotices    FormalNotice[]
 
+  // Fees, deposits & ledger
+  depositRequests DepositRequest[]
+  ledgerEntries   FinancialLedgerEntry[]
+
   @@index([stage])
 }
 
@@ -1771,4 +1775,219 @@ model SystemSetting {
   value     String // JSON
   updatedBy String?
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// FEE SCHEDULES, DEPOSITS & FINANCIAL LEDGER (Chapter 18)
+// NOTE: Client funds, escrow, trust accounts, payment-services regulation and
+// banking arrangements require legal review before production launch.
+// ============================================================================
+
+enum FeeScheduleStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+}
+
+enum FeeBasis {
+  FLAT
+  PER_ARBITRATOR
+  PERCENTAGE
+  AD_VALOREM
+}
+
+enum AllocationMethod {
+  EQUAL
+  BY_PARTY_COUNT
+  BY_CLAIM_VALUE
+  BY_CLAIM_AND_COUNTERCLAIM
+  BY_TRIBUNAL
+  BY_AGREEMENT
+  CUSTOM
+}
+
+enum DepositStatus {
+  REQUESTED
+  PARTIALLY_PAID
+  PAID
+  IN_DEFAULT
+  CANCELLED
+}
+
+enum ShareStatus {
+  OUTSTANDING
+  PARTIALLY_PAID
+  PAID
+  PAID_BY_SUBSTITUTE
+  IN_DEFAULT
+  WAIVED
+}
+
+model FeeSchedule {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  title         String
+  titleAr       String?
+  description   String?
+  descriptionAr String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  versions FeeScheduleVersion[]
+}
+
+model FeeScheduleVersion {
+  id            String            @id @default(uuid())
+  feeScheduleId String
+  feeSchedule   FeeSchedule       @relation(fields: [feeScheduleId], references: [id], onDelete: Cascade)
+  version       String
+  status        FeeScheduleStatus @default(DRAFT)
+  currency      String            @default("USD")
+  effectiveDate DateTime?
+  supersededAt  DateTime?
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  items FeeScheduleItem[]
+
+  @@unique([feeScheduleId, version])
+}
+
+model FeeScheduleItem {
+  id         String             @id @default(uuid())
+  versionId  String
+  version    FeeScheduleVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  category   String // FILING | ADMINISTRATION | ARBITRATOR | HEARING_TECH | ...
+  label      String
+  labelAr    String?
+  basis      FeeBasis           @default(FLAT)
+  amount     Decimal?           @db.Decimal(18, 2)
+  percentage Decimal?           @db.Decimal(6, 4)
+  minAmount  Decimal?           @db.Decimal(18, 2)
+  maxAmount  Decimal?           @db.Decimal(18, 2)
+  sortOrder  Int                @default(0)
+}
+
+// A request for a deposit on account of costs, allocated among the parties.
+model DepositRequest {
+  id               String           @id @default(uuid())
+  caseId           String
+  case             Case             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  totalAmount      Decimal          @db.Decimal(18, 2)
+  currency         String           @default("USD")
+  allocationMethod AllocationMethod @default(EQUAL)
+  status           DepositStatus    @default(REQUESTED)
+  dueAt            DateTime?
+  isSupplementary  Boolean          @default(false)
+  requestedById    String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  allocations DepositAllocation[]
+
+  @@index([caseId])
+}
+
+model DepositAllocation {
+  id                      String         @id @default(uuid())
+  depositRequestId        String
+  depositRequest          DepositRequest @relation(fields: [depositRequestId], references: [id], onDelete: Cascade)
+  partyId                 String
+  side                    PartySide?
+  shareAmount             Decimal        @db.Decimal(18, 2)
+  paidAmount              Decimal        @default(0) @db.Decimal(18, 2)
+  currency                String         @default("USD")
+  status                  ShareStatus    @default(OUTSTANDING)
+  // Substitute payment: another party paid this share without prejudice to the
+  // tribunal's final decision on costs.
+  paidBySubstitutePartyId String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  payments DepositPayment[]
+  defaults PaymentDefault[]
+
+  @@index([depositRequestId])
+}
+
+model DepositPayment {
+  id            String            @id @default(uuid())
+  allocationId  String
+  allocation    DepositAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  amount        Decimal           @db.Decimal(18, 2)
+  currency      String            @default("USD")
+  paidByUserId  String?
+  paidByPartyId String?
+  substitute    Boolean           @default(false)
+  provider      String            @default("manual")
+  providerRef   String?
+  receiptNumber String            @unique
+  recordedById  String
+  createdAt     DateTime          @default(now())
+
+  refunds Refund[]
+
+  @@index([allocationId])
+}
+
+model Refund {
+  id             String         @id @default(uuid())
+  paymentId      String
+  payment        DepositPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amount         Decimal        @db.Decimal(18, 2)
+  currency       String         @default("USD")
+  reason         String
+  status         String         @default("REQUESTED") // REQUESTED | APPROVED | PAID
+  authorisedById String
+  createdAt      DateTime       @default(now())
+}
+
+// Recorded when a party's share remains unpaid after the due date. The portal
+// records the default but never auto-terminates a claim: consequences are for
+// the tribunal / appointing authority.
+model PaymentDefault {
+  id                String            @id @default(uuid())
+  allocationId      String
+  allocation        DepositAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  partyId           String
+  amountOutstanding Decimal           @db.Decimal(18, 2)
+  currency          String            @default("USD")
+  status            String            @default("OPEN") // OPEN | CURED_BY_PARTY | CURED_BY_SUBSTITUTE | REFERRED_TO_TRIBUNAL | RESOLVED
+  declaredById      String
+  referredAt        DateTime?
+  resolvedAt        DateTime?
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([allocationId])
+}
+
+enum LedgerEntryKind {
+  CHARGE
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+  SUBSTITUTE_PAYMENT
+}
+
+// Append-only financial ledger per case (running record of charges/payments).
+model FinancialLedgerEntry {
+  id           String          @id @default(uuid())
+  caseId       String
+  case         Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind         LedgerEntryKind
+  description  String
+  amount       Decimal         @db.Decimal(18, 2) // signed: charges negative, payments positive
+  currency     String          @default("USD")
+  partyId      String?
+  relatedType  String? // DepositRequest | DepositPayment | Refund | ...
+  relatedId    String?
+  recordedById String?
+  createdAt    DateTime        @default(now())
+
+  @@index([caseId])
 }

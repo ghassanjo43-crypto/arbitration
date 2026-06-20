@@ -14,9 +14,16 @@ import {
   NoticeStatus,
   DeliveryChannel,
   DeliveryOutcome,
+  FeeScheduleStatus,
+  FeeBasis,
+  AllocationMethod,
+  ShareStatus,
+  LedgerEntryKind,
+  DepositStatus,
 } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { computeDeadline } from '../src/deadlines/deadline-engine';
+import { allocate, PartyShareInput } from '../src/fees/allocation-engine';
 import * as argon2 from 'argon2';
 
 const prisma = new PrismaClient();
@@ -234,6 +241,10 @@ async function main() {
       instructions: 'Effect service by international courier to the respondent’s registered office; file proof of delivery.',
     },
   });
+
+  // ---- Fee schedule + deposit workflow (allocation, substitute payment, default) ----
+  await seedFeeSchedule();
+  await seedDepositWorkflow(constituted.id, registrar.id);
 
   await seedCase({
     reference: 'GAAP-2026-000003', title: 'Maritime Charterparty Demurrage', stage: CaseStage.DRAFT,
@@ -501,7 +512,79 @@ async function seedRules() {
   return { ruleSet, v1, v2, calendar };
 }
 
-export { prisma, seedRules, seedAcceptance };
+async function seedFeeSchedule() {
+  const schedule = await prisma.feeSchedule.create({
+    data: {
+      code: 'GAAP_DEFAULT_FEES',
+      title: 'Global Ad Hoc Arbitration Panel — Schedule of Fees',
+      titleAr: 'المنصة العالمية للتحكيم الحر — جدول الرسوم',
+      description: 'Indicative administrative and arbitrator fees for online ad hoc arbitration. Subject to review by qualified counsel.',
+      descriptionAr: 'رسوم إدارية ورسوم محكمين إرشادية للتحكيم الحر عبر الإنترنت، وتخضع لمراجعة محامٍ مؤهل.',
+      versions: {
+        create: {
+          version: '1.0', status: FeeScheduleStatus.ACTIVE, currency: 'USD', effectiveDate: new Date('2026-01-01T00:00:00Z'),
+          notes: 'Initial published fee schedule.',
+          items: {
+            create: [
+              { category: 'FILING', label: 'Filing fee', labelAr: 'رسم التسجيل', basis: FeeBasis.FLAT, amount: 2500, sortOrder: 1 },
+              { category: 'ADMINISTRATION', label: 'Administration fee', labelAr: 'الرسوم الإدارية', basis: FeeBasis.AD_VALOREM, percentage: 0.015, minAmount: 5000, maxAmount: 60000, sortOrder: 2 },
+              { category: 'ARBITRATOR', label: 'Arbitrator fee (per arbitrator)', labelAr: 'أتعاب المحكم (لكل محكم)', basis: FeeBasis.PER_ARBITRATOR, amount: 25000, sortOrder: 3 },
+              { category: 'HEARING_TECH', label: 'Online hearing technology fee', labelAr: 'رسوم تقنية الجلسات عبر الإنترنت', basis: FeeBasis.FLAT, amount: 750, sortOrder: 4 },
+            ],
+          },
+        },
+      },
+    },
+  });
+  return schedule;
+}
+
+async function seedDepositWorkflow(caseId: string, registrarId: string) {
+  const parties = await prisma.caseParty.findMany({ where: { caseId } });
+  if (parties.length === 0) return;
+  const total = 50000;
+  const shareInputs: PartyShareInput[] = parties.map((p) => ({ partyId: p.id, side: p.side as 'CLAIMANT' | 'RESPONDENT' }));
+  const shares = allocate(total, 'EQUAL', shareInputs);
+
+  const request = await prisma.depositRequest.create({
+    data: {
+      caseId, title: 'Initial deposit on account of costs', totalAmount: total, currency: 'USD',
+      allocationMethod: AllocationMethod.EQUAL, dueAt: new Date('2026-05-20T00:00:00Z'), requestedById: registrarId,
+      status: DepositStatus.PARTIALLY_PAID,
+      allocations: { create: shares.map((s) => ({ partyId: s.partyId, side: s.side, shareAmount: s.shareAmount, currency: 'USD', status: ShareStatus.OUTSTANDING })) },
+    },
+    include: { allocations: true },
+  });
+  await prisma.financialLedgerEntry.create({
+    data: { caseId, kind: LedgerEntryKind.CHARGE, description: 'Deposit requested: Initial deposit on account of costs', amount: -total, currency: 'USD', relatedType: 'DepositRequest', relatedId: request.id, recordedById: registrarId },
+  });
+
+  const claimantAlloc = request.allocations.find((a) => a.side === 'CLAIMANT');
+  const respondentAlloc = request.allocations.find((a) => a.side === 'RESPONDENT');
+
+  // Claimant pays its share in full.
+  if (claimantAlloc) {
+    const amount = Number(claimantAlloc.shareAmount);
+    await prisma.depositPayment.create({ data: { allocationId: claimantAlloc.id, amount, currency: 'USD', paidByPartyId: claimantAlloc.partyId, receiptNumber: `RCP-2026-${randomUUID().slice(0, 8).toUpperCase()}`, recordedById: registrarId } });
+    await prisma.depositAllocation.update({ where: { id: claimantAlloc.id }, data: { paidAmount: amount, status: ShareStatus.PAID } });
+    await prisma.financialLedgerEntry.create({ data: { caseId, kind: LedgerEntryKind.PAYMENT, description: 'Payment on deposit (claimant share)', amount, currency: 'USD', partyId: claimantAlloc.partyId, relatedType: 'DepositAllocation', relatedId: claimantAlloc.id, recordedById: registrarId } });
+  }
+
+  // Respondent defaults; claimant then pays the respondent's share by substitution (without prejudice).
+  if (respondentAlloc) {
+    const amount = Number(respondentAlloc.shareAmount);
+    await prisma.paymentDefault.create({
+      data: { allocationId: respondentAlloc.id, partyId: respondentAlloc.partyId, amountOutstanding: amount, currency: 'USD', status: 'CURED_BY_SUBSTITUTE', declaredById: registrarId, resolvedAt: new Date('2026-05-25T00:00:00Z'), note: 'Share unpaid after the due date; subsequently covered by the other party without prejudice.' },
+    });
+    await prisma.depositPayment.create({ data: { allocationId: respondentAlloc.id, amount, currency: 'USD', paidByPartyId: claimantAlloc?.partyId, substitute: true, receiptNumber: `RCP-2026-${randomUUID().slice(0, 8).toUpperCase()}`, recordedById: registrarId } });
+    await prisma.depositAllocation.update({ where: { id: respondentAlloc.id }, data: { paidAmount: amount, status: ShareStatus.PAID_BY_SUBSTITUTE, paidBySubstitutePartyId: claimantAlloc?.partyId } });
+    await prisma.financialLedgerEntry.create({ data: { caseId, kind: LedgerEntryKind.SUBSTITUTE_PAYMENT, description: 'Substitute payment of respondent share (without prejudice to costs)', amount, currency: 'USD', partyId: respondentAlloc.partyId, relatedType: 'DepositAllocation', relatedId: respondentAlloc.id, recordedById: registrarId } });
+  }
+
+  await prisma.depositRequest.update({ where: { id: request.id }, data: { status: DepositStatus.PAID } });
+}
+
+export { prisma, seedRules, seedAcceptance, seedFeeSchedule };
 
 if (require.main === module) {
   main()
