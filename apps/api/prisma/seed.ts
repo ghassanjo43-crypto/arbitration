@@ -584,7 +584,7 @@ async function seedDepositWorkflow(caseId: string, registrarId: string) {
   await prisma.depositRequest.update({ where: { id: request.id }, data: { status: DepositStatus.PAID } });
 }
 
-export { prisma, seedRules, seedAcceptance, seedFeeSchedule };
+export { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow };
 
 if (require.main === module) {
   main()

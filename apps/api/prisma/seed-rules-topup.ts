@@ -9,17 +9,22 @@
  * cases, documents, etc. are never modified or deleted.
  */
 import { NoticeType, NoticeStatus, DeliveryChannel, DeliveryOutcome, DayKind } from '@prisma/client';
-import { prisma, seedRules, seedAcceptance } from './seed';
+import { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow } from './seed';
 import { computeDeadline } from '../src/deadlines/deadline-engine';
 
 async function main() {
+  console.log('Topping up rules-engine / fees demo data (idempotent)…');
+
+  // --- Rules set + versions + calendar (create once, else reuse) ---
+  let v1, v2, calendar;
   const existing = await prisma.ruleSet.findUnique({ where: { code: 'GAAP_ONLINE_ADHOC' } });
-  if (existing) {
-    console.log('Rules data already present — nothing to top up.');
-    return;
+  if (!existing) {
+    ({ v1, v2, calendar } = await seedRules());
+  } else {
+    v1 = await prisma.ruleSetVersion.findFirstOrThrow({ where: { ruleSetId: existing.id, version: '1.0' } });
+    v2 = await prisma.ruleSetVersion.findFirstOrThrow({ where: { ruleSetId: existing.id, version: '2.0' } });
+    calendar = await prisma.holidayCalendar.findFirstOrThrow({ where: { code: 'UNCITRAL_DEFAULT' } });
   }
-  console.log('Topping up rules engine demo data…');
-  const { v1, v2, calendar } = await seedRules();
 
   const registrar = await prisma.user.findFirst({ where: { email: 'registrar@arbitration.example' } });
   const case1 = await prisma.case.findUnique({ where: { reference: 'GAAP-2026-000001' } });
@@ -80,6 +85,17 @@ async function main() {
       });
     }
   }
+
+  // --- Fee schedule (create once) ---
+  if (!(await prisma.feeSchedule.findUnique({ where: { code: 'GAAP_DEFAULT_FEES' } }))) {
+    await seedFeeSchedule();
+  }
+
+  // --- Deposit workflow demo on case 2 (create once) ---
+  if (case2 && registrar && !(await prisma.depositRequest.findFirst({ where: { caseId: case2.id } }))) {
+    await seedDepositWorkflow(case2.id, registrar.id);
+  }
+
   console.log('Top-up complete.');
 }
 
