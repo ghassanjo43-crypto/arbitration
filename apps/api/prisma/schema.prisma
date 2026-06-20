@@ -1287,9 +1287,26 @@ model FormalNotice {
 
   recipients  NoticeRecipient[]
   certificate ServiceCertificate?
+  documents   NoticeDocument[]
 
   @@index([caseId])
   @@index([status])
+}
+
+// A document attached to a formal notice (a notice may serve several). The
+// content hash seals which exact file was served.
+model NoticeDocument {
+  id          String       @id @default(uuid())
+  noticeId    String
+  notice      FormalNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  documentId  String? // optional link to a case Document
+  filename    String
+  contentHash String? // SHA-256 of the served file
+  byteSize    Int?
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+
+  @@index([noticeId])
 }
 
 model NoticeRecipient {
@@ -1307,10 +1324,46 @@ model NoticeRecipient {
   acknowledgementMethod String?
   createdAt             DateTime     @default(now())
 
-  attempts     NoticeDeliveryAttempt[]
-  accessEvents NoticeAccessEvent[]
+  attempts        NoticeDeliveryAttempt[]
+  accessEvents    NoticeAccessEvent[]
+  acknowledgements NoticeAcknowledgement[]
+  failures        NoticeFailure[]
 
   @@index([noticeId])
+}
+
+// An immutable acknowledgement of receipt by a recipient. Distinct from a mere
+// portal access: an explicit, sealed statement that the document was received.
+model NoticeAcknowledgement {
+  id                String          @id @default(uuid())
+  recipientId       String
+  recipient         NoticeRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  acknowledgedById  String?
+  method            String          @default("portal") // portal | email | signature
+  statementText     String?
+  ipAddress         String?
+  userAgent         String?
+  signatureMetadata String? // JSON: e-signature provider metadata
+  receiptHash       String // SHA-256 seal over the acknowledgement payload
+  createdAt         DateTime        @default(now())
+
+  @@index([recipientId])
+}
+
+// A recorded delivery failure on a specific channel. Email dispatch failure is
+// never silently dropped: it is captured here and may trigger substitute service.
+model NoticeFailure {
+  id                String          @id @default(uuid())
+  recipientId       String
+  recipient         NoticeRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  channel           DeliveryChannel
+  reason            String
+  detail            String?
+  substituteOrderId String? // SubstituteServiceOrder that addressed this failure
+  resolvedAt        DateTime?
+  createdAt         DateTime        @default(now())
+
+  @@index([recipientId])
 }
 
 model NoticeDeliveryAttempt {

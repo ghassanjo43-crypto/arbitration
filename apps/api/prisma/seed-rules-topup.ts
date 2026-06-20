@@ -50,8 +50,15 @@ async function main() {
         { recipientId: failed.recipients[0].id, channel: DeliveryChannel.EMAIL, outcome: DeliveryOutcome.BOUNCED, detail: 'Email dispatch failed: recipient address bounced.' },
       ],
     });
-    await prisma.substituteServiceOrder.create({
+    await prisma.noticeDocument.create({
+      data: { noticeId: failed.id, filename: 'notice-of-arbitration.pdf', contentHash: 'demo-sha256-placeholder', byteSize: 184320 },
+    });
+    const subOrder = await prisma.substituteServiceOrder.create({
       data: { noticeId: failed.id, method: DeliveryChannel.COURIER, orderedById: registrar!.id, instructions: 'Effect service by international courier to the registered office; file proof of delivery.' },
+    });
+    // Explicit failure record, resolved by the substitute-service order above.
+    await prisma.noticeFailure.create({
+      data: { recipientId: failed.recipients[0].id, channel: DeliveryChannel.EMAIL, reason: 'EMAIL_DISPATCH_FAILED', detail: 'Recipient address bounced.', substituteOrderId: subOrder.id, resolvedAt: new Date('2026-04-16T09:00:00Z') },
     });
   }
 

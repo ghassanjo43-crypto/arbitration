@@ -19,6 +19,11 @@ export class ServiceController {
     return this.service.listForCase(user, caseId);
   }
 
+  @Get('cases/:caseId/notice-requirements')
+  noticeRequirements(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.service.listNoticeRequirements(user, caseId);
+  }
+
   @Post('cases/:caseId/notices')
   issue(
     @CurrentUser() user: AuthUser,

@@ -87,6 +87,25 @@ export class ServiceService {
       include: { recipients: true },
     });
 
+    // Attach served documents (a notice may serve several). The scalar
+    // documentId is preserved for back-compat and also recorded as a document.
+    const docs = [
+      ...(dto.documentId ? [{ filename: 'served-document', documentId: dto.documentId }] : []),
+      ...(dto.documents ?? []),
+    ];
+    if (docs.length > 0) {
+      await this.prisma.noticeDocument.createMany({
+        data: docs.map((d, i) => ({
+          noticeId: notice.id,
+          documentId: d.documentId,
+          filename: d.filename,
+          contentHash: 'contentHash' in d ? d.contentHash : undefined,
+          byteSize: 'byteSize' in d ? d.byteSize : undefined,
+          sortOrder: i,
+        })),
+      });
+    }
+
     // Attempt email dispatch per recipient (best-effort notice-to-collect).
     for (const recipient of notice.recipients) {
       // Portal availability is itself a delivery attempt and is always recorded.
@@ -122,12 +141,22 @@ export class ServiceService {
           data: { status: NoticeStatus.EMAIL_SENT },
         });
       } catch (err) {
+        const message = (err as Error).message;
         await this.prisma.noticeDeliveryAttempt.create({
           data: {
             recipientId: recipient.id,
             channel: DeliveryChannel.EMAIL,
             outcome: DeliveryOutcome.FAILED,
-            detail: `Email dispatch failed: ${(err as Error).message}`,
+            detail: `Email dispatch failed: ${message}`,
+          },
+        });
+        // A failure is captured explicitly so it can drive substitute service.
+        await this.prisma.noticeFailure.create({
+          data: {
+            recipientId: recipient.id,
+            channel: DeliveryChannel.EMAIL,
+            reason: 'EMAIL_DISPATCH_FAILED',
+            detail: message,
           },
         });
         await this.prisma.noticeRecipient.update({
@@ -223,14 +252,36 @@ export class ServiceService {
     const recipient = notice.recipients.find((r) => r.userId === user.id);
     if (!recipient) throw new ForbiddenException('You are not a recipient of this notice.');
 
-    const updated = await this.prisma.noticeRecipient.update({
-      where: { id: recipient.id },
-      data: {
-        status: NoticeStatus.ACKNOWLEDGED,
-        acknowledgedAt: new Date(),
-        acknowledgementMethod: dto.method ?? 'portal',
-      },
+    const acknowledgedAt = new Date();
+    const method = dto.method ?? 'portal';
+    // Seal the acknowledgement payload so it cannot later be altered unnoticed.
+    const ackPayload = JSON.stringify({
+      noticeId, recipientId: recipient.id, userId: user.id, method,
+      statementText: dto.statementText ?? null, acknowledgedAt: acknowledgedAt.toISOString(),
     });
+    const receiptHash = createHash('sha256').update(ackPayload).digest('hex');
+
+    const [, , ack] = await this.prisma.$transaction([
+      this.prisma.noticeRecipient.update({
+        where: { id: recipient.id },
+        data: { status: NoticeStatus.ACKNOWLEDGED, acknowledgedAt, acknowledgementMethod: method },
+      }),
+      // The notice itself is acknowledged: status reflects completed service.
+      this.prisma.formalNotice.update({ where: { id: noticeId }, data: { status: NoticeStatus.ACKNOWLEDGED } }),
+      this.prisma.noticeAcknowledgement.create({
+        data: {
+          recipientId: recipient.id,
+          acknowledgedById: user.id,
+          method,
+          statementText: dto.statementText,
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          signatureMetadata: dto.signatureMetadata ? JSON.stringify(dto.signatureMetadata) : null,
+          receiptHash,
+        },
+      }),
+    ]);
+
     await this.audit.record({
       userId: user.id,
       action: 'NOTICE_ACKNOWLEDGED',
@@ -238,8 +289,9 @@ export class ServiceService {
       entityId: noticeId,
       caseId: notice.caseId,
       ipAddress: ctx.ipAddress,
+      metadata: { receiptHash, method },
     });
-    return updated;
+    return ack;
   }
 
   /** Order additional (non-electronic) service when electronic service fails. */
@@ -254,6 +306,12 @@ export class ServiceService {
     await this.prisma.formalNotice.update({
       where: { id: noticeId },
       data: { status: NoticeStatus.SUBSTITUTE_SERVICE_REQUIRED },
+    });
+    // Link the outstanding failures on this notice to the substitute order so
+    // the audit trail shows which failures the order addresses.
+    await this.prisma.noticeFailure.updateMany({
+      where: { recipient: { noticeId }, substituteOrderId: null, resolvedAt: null },
+      data: { substituteOrderId: order.id, resolvedAt: new Date() },
     });
     await this.audit.record({
       userId: user.id,
@@ -276,7 +334,8 @@ export class ServiceService {
       where: { id: noticeId },
       include: {
         case: { select: { reference: true } },
-        recipients: { include: { attempts: true, accessEvents: true } },
+        documents: true,
+        recipients: { include: { attempts: true, accessEvents: true, acknowledgements: true, failures: true } },
       },
     });
     if (!notice) throw new NotFoundException('Notice not found.');
@@ -293,6 +352,7 @@ export class ServiceService {
       issuedById: notice.issuedById,
       issuedAt: notice.issuedAt,
       generatedAt: new Date().toISOString(),
+      documents: notice.documents.map((d) => ({ filename: d.filename, contentHash: d.contentHash, byteSize: d.byteSize })),
       recipients: notice.recipients.map((r) => ({
         label: r.label,
         email: r.email,
@@ -302,6 +362,8 @@ export class ServiceService {
         acknowledgedAt: r.acknowledgedAt,
         attempts: r.attempts.map((a) => ({ channel: a.channel, outcome: a.outcome, at: a.createdAt, detail: a.detail })),
         accessEvents: r.accessEvents.map((e) => ({ action: e.action, at: e.createdAt })),
+        acknowledgements: r.acknowledgements.map((a) => ({ method: a.method, at: a.createdAt, receiptHash: a.receiptHash })),
+        failures: r.failures.map((f) => ({ channel: f.channel, reason: f.reason, at: f.createdAt, resolvedAt: f.resolvedAt, substituteOrderId: f.substituteOrderId })),
       })),
     };
     const payload = JSON.stringify(payloadObj);
@@ -331,5 +393,34 @@ export class ServiceService {
       metadata: { certificateNumber, allCompleted },
     });
     return certificate;
+  }
+
+  /**
+   * Notice requirements raised by the rules engine for this case (REQUIRE_NOTICE
+   * actions). This is how the engine drives service: a recorded procedural event
+   * tells the registry which formal notices the rules require to be served.
+   */
+  async listNoticeRequirements(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    const executions = await this.prisma.caseRuleExecution.findMany({
+      where: { caseId, actionKind: 'REQUIRE_NOTICE' },
+      orderBy: { executedAt: 'asc' },
+      include: { rule: { select: { number: true, title: true, requiredNotice: true } } },
+    });
+    return executions.map((e) => {
+      let targetKey: string | undefined;
+      try {
+        targetKey = (JSON.parse(e.detail ?? '{}') as { targetKey?: string }).targetKey;
+      } catch {
+        targetKey = undefined;
+      }
+      return {
+        executionId: e.id,
+        rule: e.rule,
+        requiredNotice: targetKey ?? e.rule.requiredNotice,
+        status: e.status,
+        executedAt: e.executedAt,
+      };
+    });
   }
 }
