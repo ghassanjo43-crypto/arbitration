@@ -2,7 +2,21 @@
  * Seed script — clearly fake demonstration data.
  * Default password for every seeded account: "Password!2026" (development only).
  */
-import { PrismaClient, Role, CaseStage, PartySide, CaseRole } from '@prisma/client';
+import {
+  PrismaClient,
+  Role,
+  CaseStage,
+  PartySide,
+  CaseRole,
+  RuleVersionStatus,
+  DayKind,
+  NoticeType,
+  NoticeStatus,
+  DeliveryChannel,
+  DeliveryOutcome,
+} from '@prisma/client';
+import { createHash, randomUUID } from 'node:crypto';
+import { computeDeadline } from '../src/deadlines/deadline-engine';
 import * as argon2 from 'argon2';
 
 const prisma = new PrismaClient();
@@ -120,8 +134,11 @@ async function main() {
     arbitrators.push({ user: u, profile });
   }
 
+  // ---- Rules engine: rule set, versions (v1 superseded, v2 active), calendar ----
+  const { v1, v2, calendar } = await seedRules();
+
   // ---- Sample cases ----
-  await seedCase({
+  const case1 = await seedCase({
     reference: 'GAAP-2026-000001', title: 'Solar EPC Contract Dispute', stage: CaseStage.AWAITING_RESPONSE,
     claimant: clients[0], claimantRep: lawyers[0], registrar, respondentName: 'Helios Energy Holdings Ltd',
     category: 'RENEWABLE_ENERGY', seat: 'London, United Kingdom',
@@ -144,6 +161,78 @@ async function main() {
   });
   await prisma.deliberationNote.create({
     data: { caseId: constituted.id, tribunalId: tribunal.id, authorUserId: arbitrators[3].user.id, body: 'Preliminary view on jurisdiction — to be discussed before the procedural conference. (Confidential, tribunal only.)' },
+  });
+
+  // ---- Rule-set pinning: case 1 on the OLDER version, case 2 on the LATEST ----
+  await prisma.caseRuleSet.create({
+    data: { caseId: case1.id, ruleSetVersionId: v1.id, assignedById: registrar.id },
+  });
+  await prisma.caseRuleSet.create({
+    data: { caseId: constituted.id, ruleSetVersionId: v2.id, assignedById: registrar.id },
+  });
+
+  // ---- Rule acceptance with immutable receipt (claimant on case 2) ----
+  await seedAcceptance(constituted.id, clients[1].id, v2.id, {
+    seat: 'Singapore', governingLaw: 'English law', languageOfProceedings: 'en',
+    numberOfArbitrators: 1, appointmentMethod: 'Appointing authority',
+  });
+
+  // ---- Procedural event + engine-generated deadline (case 2) ----
+  const serviceEvent = await prisma.caseProceduralEvent.create({
+    data: {
+      caseId: constituted.id, type: 'NOTICE_SERVED', actorUserId: registrar.id,
+      effectiveDate: new Date('2026-05-01T09:00:00Z'),
+      metadata: JSON.stringify({ note: 'Notice of Arbitration served electronically.' }),
+    },
+  });
+  const responseDef = await prisma.ruleDeadlineDefinition.findFirst({
+    where: { key: 'RESPONSE_TO_NOTICE', rule: { versionId: v2.id } },
+  });
+  if (responseDef) {
+    const computed = computeDeadline({
+      triggerDate: serviceEvent.effectiveDate ?? serviceEvent.occurredAt,
+      days: responseDef.days,
+      dayKind: responseDef.dayKind === DayKind.BUSINESS ? 'BUSINESS' : 'CALENDAR',
+      calendar: { timezone: calendar.timezone, weekend: calendar.weekend, holidays: [] },
+    });
+    await prisma.deadline.create({
+      data: {
+        caseId: constituted.id, title: responseDef.label, description: responseDef.requiredAction,
+        dueAt: computed.dueAt, timezone: calendar.timezone, status: 'OPEN', reminderRule: responseDef.reminderRule,
+        ruleId: responseDef.ruleId, definitionKey: responseDef.key, triggerEventId: serviceEvent.id,
+        triggerDate: serviceEvent.effectiveDate, days: responseDef.days, dayKind: responseDef.dayKind,
+        holidayCalendarId: calendar.id, responsibleRole: responseDef.responsibleRole, requiredAction: responseDef.requiredAction,
+      },
+    });
+  }
+
+  // ---- Electronic service with a delivery FAILURE + substitute service (case 1) ----
+  const failedNotice = await prisma.formalNotice.create({
+    data: {
+      caseId: case1.id, type: NoticeType.NOTICE_OF_ARBITRATION,
+      subject: 'Notice of Arbitration — Solar EPC Contract Dispute', issuedById: registrar.id,
+      issuedAt: new Date('2026-04-15T10:00:00Z'), status: NoticeStatus.DELIVERY_FAILED,
+      body: 'You are hereby served with the Notice of Arbitration. Please log in to the portal to access the document.',
+      recipients: {
+        create: {
+          label: 'Helios Energy Holdings Ltd', email: 'bounce@invalid.example',
+          status: NoticeStatus.DELIVERY_FAILED, portalAvailableAt: new Date('2026-04-15T10:00:00Z'),
+        },
+      },
+    },
+    include: { recipients: true },
+  });
+  await prisma.noticeDeliveryAttempt.createMany({
+    data: [
+      { recipientId: failedNotice.recipients[0].id, channel: DeliveryChannel.PORTAL, outcome: DeliveryOutcome.DELIVERED, detail: 'Document made available in the secure case portal.' },
+      { recipientId: failedNotice.recipients[0].id, channel: DeliveryChannel.EMAIL, outcome: DeliveryOutcome.BOUNCED, detail: 'Email dispatch failed: recipient address bounced.' },
+    ],
+  });
+  await prisma.substituteServiceOrder.create({
+    data: {
+      noticeId: failedNotice.id, method: DeliveryChannel.COURIER, orderedById: registrar.id,
+      instructions: 'Effect service by international courier to the respondent’s registered office; file proof of delivery.',
+    },
   });
 
   await seedCase({
@@ -225,9 +314,200 @@ async function seedCase(input: SeedCaseInput) {
   return c;
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+/** Record an immutable rule-acceptance receipt (mirrors RulesService logic). */
+async function seedAcceptance(
+  caseId: string,
+  userId: string,
+  ruleSetVersionId: string,
+  choices: { seat: string; governingLaw: string; languageOfProceedings: string; numberOfArbitrators: number; appointmentMethod: string },
+) {
+  const acceptedAt = new Date('2026-04-20T12:00:00Z');
+  const receiptNumber = `ACC-2026-${randomUUID().slice(0, 8).toUpperCase()}`;
+  const canonical = JSON.stringify({ caseId, userId, ruleSetVersionId, ...choices, acceptedAt: acceptedAt.toISOString() });
+  const receiptHash = createHash('sha256').update(canonical).digest('hex');
+  return prisma.caseRuleAcceptance.create({
+    data: {
+      caseId, userId, ruleSetVersionId, acceptedLanguage: 'en',
+      seat: choices.seat, governingLaw: choices.governingLaw, languageOfProceedings: choices.languageOfProceedings,
+      numberOfArbitrators: choices.numberOfArbitrators, appointmentMethod: choices.appointmentMethod,
+      consentElectronicService: true, consentOnlineHearings: true,
+      feeAllocationAgreement: 'Each party bears its share of the deposit equally, subject to the tribunal’s final costs decision.',
+      ipAddress: '203.0.113.10', userAgent: 'Mozilla/5.0 (seed)', authMethod: 'password',
+      receiptNumber, receiptHash, acceptedAt,
+    },
+  });
+}
+
+// Chapter + rule content (English and Arabic). Kept compact but representative.
+interface RuleSeed {
+  number: string;
+  title: string;
+  titleAr: string;
+  text: string;
+  textAr: string;
+  triggeringEvent?: string;
+  responsibleRole?: CaseRole;
+  deadline?: { key: string; label: string; labelAr: string; triggerEvent: string; days: number; dayKind: DayKind; responsibleRole?: CaseRole; requiredAction?: string };
+}
+interface ChapterSeed { number: number; title: string; titleAr: string; summary: string; summaryAr: string; rules: RuleSeed[] }
+
+function chapterContent(responseDays: number): ChapterSeed[] {
+  return [
+    {
+      number: 1, title: 'General Provisions', titleAr: 'أحكام عامة',
+      summary: 'Scope, the ad hoc nature of proceedings, the administrative role of the portal, and the independence of the tribunal.',
+      summaryAr: 'النطاق، والطبيعة الحرة للإجراءات، والدور الإداري للمنصة، واستقلال هيئة التحكيم.',
+      rules: [
+        { number: '1.1', title: 'Scope of application', titleAr: 'نطاق التطبيق',
+          text: 'These rules govern online ad hoc arbitration administered through the portal where the parties have agreed to their application. Mandatory provisions of the law of the seat prevail over any conflicting provision of these rules.',
+          textAr: 'تحكم هذه القواعد التحكيم الحر عبر الإنترنت الذي تتم إدارته من خلال المنصة حيثما اتفق الأطراف على تطبيقها. وتسمو الأحكام الآمرة لقانون مقر التحكيم على أي حكم مخالف في هذه القواعد.' },
+        { number: '1.2', title: 'Administrative role of the portal', titleAr: 'الدور الإداري للمنصة',
+          text: 'The operating company provides administration and technology only. It does not determine jurisdiction, admissibility, evidence, the merits, or costs, all of which remain within the authority of the tribunal.',
+          textAr: 'تقدّم الشركة المشغّلة الإدارة والتقنية فقط، ولا تفصل في الاختصاص أو القبول أو الأدلة أو الموضوع أو التكاليف، وكلها تبقى من سلطة هيئة التحكيم.' },
+        { number: '1.3', title: 'Equal treatment and fair opportunity', titleAr: 'المساواة في المعاملة والفرصة العادلة',
+          text: 'The parties shall be treated with equality and each party shall be given a reasonable opportunity to present its case.',
+          textAr: 'يُعامَل الأطراف على قدم المساواة وتُتاح لكل طرف فرصة معقولة لعرض قضيته.' },
+      ],
+    },
+    {
+      number: 2, title: 'Communications and Electronic Service', titleAr: 'المراسلات والإعلان الإلكتروني',
+      summary: 'How notices and documents are served electronically, with evidence of delivery and access.',
+      summaryAr: 'كيفية إعلان الإخطارات والمستندات إلكترونياً مع إثبات التسليم والاطلاع.',
+      rules: [
+        { number: '2.1', title: 'Electronic service', titleAr: 'الإعلان الإلكتروني',
+          text: 'Documents are served by being made available in the secure portal, with a notice-to-collect dispatched by email. Email dispatch alone is not treated as conclusive proof of receipt.',
+          textAr: 'تُعلَن المستندات بإتاحتها في المنصة الآمنة مع إرسال إشعار بالاستلام عبر البريد الإلكتروني. ولا يُعد إرسال البريد الإلكتروني وحده دليلاً قاطعاً على التسلّم.' },
+        { number: '2.2', title: 'Certificate of electronic service', titleAr: 'شهادة الإعلان الإلكتروني',
+          text: 'On request, the registrar generates a Certificate of Electronic Service recording recipients, methods, timestamps, delivery and access status, and supporting audit events.',
+          textAr: 'بناءً على الطلب، يُصدر المسجّل شهادة إعلان إلكتروني تُسجّل المرسَل إليهم وطرق الإعلان والطوابع الزمنية وحالة التسليم والاطلاع والأحداث المؤيدة في سجل التدقيق.' },
+      ],
+    },
+    {
+      number: 3, title: 'Commencement of Arbitration', titleAr: 'بدء التحكيم',
+      summary: 'When the arbitration is treated as commenced.',
+      summaryAr: 'متى يُعد التحكيم قد بدأ.',
+      rules: [
+        { number: '3.1', title: 'Date of commencement', titleAr: 'تاريخ البدء', triggeringEvent: 'CASE_REGISTERED',
+          text: 'The arbitration commences when the Notice of Arbitration has been submitted in complete form, the filing fee has been paid or waived, and the portal has issued a case registration confirmation, subject to any determination by the tribunal or applicable law.',
+          textAr: 'يبدأ التحكيم عند تقديم إخطار التحكيم مكتملاً ودفع رسم التسجيل أو الإعفاء منه وإصدار المنصة تأكيد تسجيل القضية، وذلك مع مراعاة أي قرار لهيئة التحكيم أو القانون الواجب التطبيق.' },
+      ],
+    },
+    {
+      number: 4, title: 'Notice of Arbitration', titleAr: 'إخطار التحكيم',
+      summary: 'Required contents of the Notice of Arbitration and administrative completeness review.',
+      summaryAr: 'المحتويات المطلوبة لإخطار التحكيم ومراجعة الاكتمال الإدارية.',
+      rules: [
+        { number: '4.1', title: 'Contents of the Notice', titleAr: 'محتويات الإخطار', responsibleRole: CaseRole.CLAIMANT,
+          text: 'The Notice of Arbitration shall identify the parties and representatives, the arbitration agreement and contract, the nature of the dispute, the claims and relief sought, and proposals as to seat, language, and the number of arbitrators.',
+          textAr: 'يجب أن يحدد إخطار التحكيم الأطراف وممثليهم، واتفاق التحكيم والعقد، وطبيعة النزاع، والطلبات والتعويضات المطلوبة، والمقترحات بشأن المقر واللغة وعدد المحكمين.' },
+      ],
+    },
+    {
+      number: 5, title: 'Response to the Notice', titleAr: 'الرد على الإخطار',
+      summary: 'The respondent’s structured response and the time allowed for it.',
+      summaryAr: 'رد المدّعى عليه المنظَّم والمهلة المتاحة له.',
+      rules: [
+        { number: '5.1', title: 'Time to respond', titleAr: 'مهلة الرد', triggeringEvent: 'NOTICE_SERVED', responsibleRole: CaseRole.RESPONDENT,
+          text: `The respondent shall submit its Response within ${responseDays} days of service of the Notice of Arbitration, unless the tribunal or the parties agree otherwise.`,
+          textAr: `يقدّم المدّعى عليه ردّه خلال ${responseDays} يوماً من إعلان إخطار التحكيم، ما لم تتفق هيئة التحكيم أو الأطراف على خلاف ذلك.`,
+          deadline: { key: 'RESPONSE_TO_NOTICE', label: 'Response to Notice of Arbitration', labelAr: 'الرد على إخطار التحكيم', triggerEvent: 'NOTICE_SERVED', days: responseDays, dayKind: DayKind.CALENDAR, responsibleRole: CaseRole.RESPONDENT, requiredAction: 'File the Response to the Notice of Arbitration.' } },
+      ],
+    },
+    {
+      number: 6, title: 'Time Limits and Deadlines', titleAr: 'المهل والمواعيد',
+      summary: 'How procedural time limits are calculated.',
+      summaryAr: 'كيفية احتساب المهل الإجرائية.',
+      rules: [
+        { number: '6.1', title: 'Calculation of periods', titleAr: 'احتساب المدد',
+          text: 'A period begins on the day following the triggering event. If the last day is a non-business day in the official case time zone, the period extends to the next business day. Periods may be expressed in calendar or business days.',
+          textAr: 'تبدأ المدة في اليوم التالي للحدث المُحرِّك. وإذا صادف آخر يوم يوم عطلة في المنطقة الزمنية الرسمية للقضية، تُمدّ المدة إلى يوم العمل التالي. ويجوز التعبير عن المدد بأيام تقويمية أو أيام عمل.' },
+      ],
+    },
+  ];
+}
+
+async function buildVersion(ruleSetId: string, version: string, status: RuleVersionStatus, opts: { effectiveDate: Date; supersededAt?: Date; changeSummary: string; changeSummaryAr: string; responseDays: number; publishedById?: string }) {
+  const rsv = await prisma.ruleSetVersion.create({
+    data: {
+      ruleSetId, version, status, effectiveDate: opts.effectiveDate, supersededAt: opts.supersededAt,
+      changeSummary: opts.changeSummary, changeSummaryAr: opts.changeSummaryAr,
+      mandatoryLawNoticeAr: 'تسمو الأحكام الآمرة لقانون المقر على القواعد المخالفة. وتتطلب هذه القواعد مراجعة من محامٍ تحكيمي مؤهل قبل الإطلاق الإنتاجي.',
+      publishedById: opts.publishedById,
+    },
+  });
+  const chapters = chapterContent(opts.responseDays);
+  for (const ch of chapters) {
+    const chapter = await prisma.ruleChapter.create({
+      data: { versionId: rsv.id, number: ch.number, title: ch.title, titleAr: ch.titleAr, summary: ch.summary, summaryAr: ch.summaryAr, sortOrder: ch.number },
+    });
+    let order = 0;
+    for (const r of ch.rules) {
+      const rule = await prisma.rule.create({
+        data: {
+          versionId: rsv.id, chapterId: chapter.id, number: r.number, title: r.title, titleAr: r.titleAr,
+          text: r.text, textAr: r.textAr, sortOrder: order++, triggeringEvent: r.triggeringEvent, responsibleRole: r.responsibleRole,
+          publicVisible: true, auditRequired: true,
+        },
+      });
+      if (r.deadline) {
+        await prisma.ruleDeadlineDefinition.create({
+          data: {
+            ruleId: rule.id, key: r.deadline.key, label: r.deadline.label, labelAr: r.deadline.labelAr,
+            triggerEvent: r.deadline.triggerEvent, days: r.deadline.days, dayKind: r.deadline.dayKind,
+            responsibleRole: r.deadline.responsibleRole, requiredAction: r.deadline.requiredAction,
+            extensionAuthority: 'Tribunal (or the registrar before constitution)',
+          },
+        });
+      }
+    }
+  }
+  return rsv;
+}
+
+async function seedRules() {
+  const ruleSet = await prisma.ruleSet.create({
+    data: {
+      code: 'GAAP_ONLINE_ADHOC',
+      title: 'Global Ad Hoc Arbitration Panel Rules for Online Arbitration',
+      titleAr: 'قواعد المنصة العالمية للتحكيم الحر للتحكيم عبر الإنترنت',
+      description: 'Original platform rules for online ad hoc arbitration, drawing on the UNCITRAL Arbitration Rules as a reference framework. These rules require review by qualified arbitration counsel before production launch.',
+      descriptionAr: 'قواعد منصّة أصلية للتحكيم الحر عبر الإنترنت، تستند إلى قواعد الأونسيترال للتحكيم كإطار مرجعي. وتتطلب هذه القواعد مراجعة من محامٍ تحكيمي مؤهل قبل الإطلاق الإنتاجي.',
+    },
+  });
+  const v1 = await buildVersion(ruleSet.id, '1.0', RuleVersionStatus.SUPERSEDED, {
+    effectiveDate: new Date('2025-01-01T00:00:00Z'), supersededAt: new Date('2026-01-01T00:00:00Z'),
+    changeSummary: 'Initial published version.', changeSummaryAr: 'النسخة المنشورة الأولى.', responseDays: 28,
+  });
+  const v2 = await buildVersion(ruleSet.id, '2.0', RuleVersionStatus.ACTIVE, {
+    effectiveDate: new Date('2026-01-01T00:00:00Z'),
+    changeSummary: 'Response period harmonised to 30 days; electronic-service evidence provisions strengthened.',
+    changeSummaryAr: 'توحيد مهلة الرد إلى 30 يوماً وتعزيز أحكام إثبات الإعلان الإلكتروني.', responseDays: 30,
+  });
+
+  const calendar = await prisma.holidayCalendar.create({
+    data: {
+      code: 'UNCITRAL_DEFAULT', name: 'Default international calendar', nameAr: 'التقويم الدولي الافتراضي',
+      timezone: 'UTC', weekend: [6, 0],
+      holidays: {
+        create: [
+          { date: new Date('2026-01-01T00:00:00Z'), name: 'New Year’s Day', nameAr: 'رأس السنة الميلادية' },
+          { date: new Date('2026-05-01T00:00:00Z'), name: 'International Workers’ Day', nameAr: 'عيد العمال' },
+          { date: new Date('2026-12-25T00:00:00Z'), name: 'Christmas Day', nameAr: 'عيد الميلاد' },
+        ],
+      },
+    },
+  });
+
+  return { ruleSet, v1, v2, calendar };
+}
+
+export { prisma, seedRules, seedAcceptance };
+
+if (require.main === module) {
+  main()
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

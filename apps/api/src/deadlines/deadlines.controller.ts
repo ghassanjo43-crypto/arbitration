@@ -4,7 +4,7 @@ import { DeadlinesService } from './deadlines.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { CreateDeadlineDto, ExtendDeadlineDto } from './dto';
+import { CreateDeadlineDto, ExtendDeadlineDto, GenerateDeadlineDto } from './dto';
 
 @ApiTags('deadlines')
 @ApiBearerAuth()
@@ -28,8 +28,18 @@ export class DeadlinesController {
     return this.deadlines.create(user, caseId, dto);
   }
 
+  @Post('cases/:caseId/deadlines/generate')
+  generate(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: GenerateDeadlineDto) {
+    return this.deadlines.generateFromDefinition(user, caseId, dto);
+  }
+
   @Patch('deadlines/:id/extend')
   extend(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExtendDeadlineDto) {
     return this.deadlines.extend(user, id, dto);
+  }
+
+  @Patch('deadlines/:id/complete')
+  complete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.deadlines.markComplete(user, id);
   }
 }

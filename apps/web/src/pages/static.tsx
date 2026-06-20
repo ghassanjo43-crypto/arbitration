@@ -58,6 +58,9 @@ export function Rules() {
           <li>Independence and impartiality of arbitrators, with mandatory conflict disclosure.</li>
           <li>Confidentiality of submissions, deliberations, and awards.</li>
         </ul>
+        <p>
+          <a className="btn btn--primary" href="/rules/full">Read the full versioned rules (English &amp; Arabic)</a>
+        </p>
       </Prose>
     </>
   );

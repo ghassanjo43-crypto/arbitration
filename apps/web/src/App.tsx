@@ -18,6 +18,7 @@ import { CaseWorkspace } from './pages/app/CaseWorkspace';
 import { AdminContent } from './pages/app/AdminContent';
 import { AdminUsers } from './pages/app/AdminUsers';
 import { VerifyEmail } from './pages/VerifyEmail';
+import { RulesFull } from './pages/RulesFull';
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="about" element={<About />} />
           <Route path="how-it-works" element={<HowItWorks />} />
           <Route path="rules" element={<Rules />} />
+          <Route path="rules/full" element={<RulesFull />} />
           {/* Arbitrator directory requires sign-in (still inside the public layout). */}
           <Route element={<ProtectedRoute />}>
             <Route path="arbitrators" element={<ArbitratorDirectory />} />

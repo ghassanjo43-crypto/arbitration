@@ -9,6 +9,7 @@ import { CalendarTab } from './case/CalendarTab';
 import { FinanceTab } from './case/FinanceTab';
 import { AwardsTab } from './case/AwardsTab';
 import { DeliberationsTab } from './case/DeliberationsTab';
+import { RulesProcedureTab } from './case/RulesProcedureTab';
 
 interface CaseDetail {
   id: string;
@@ -24,7 +25,9 @@ interface CaseDetail {
   _membership: { isTribunal: boolean; caseRoles: string[] };
 }
 
-type TabKey = 'overview' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
+type TabKey = 'overview' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
+
+const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPONDENT_REPRESENTATIVE'];
 
 export function CaseWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -42,8 +45,11 @@ export function CaseWorkspace() {
   const currentIndex = ORDERED_STAGES.indexOf(data.stage as never);
   const isTribunal = data._membership.isTribunal;
 
+  const isParty = data._membership.caseRoles.some((r) => PARTY_ROLES.includes(r));
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'rules', label: 'Rules & Procedure' },
     { key: 'documents', label: 'Documents' },
     { key: 'messages', label: 'Messages' },
     { key: 'calendar', label: 'Calendar' },
@@ -101,6 +107,7 @@ export function CaseWorkspace() {
               </div>
             </div>
           )}
+          {tab === 'rules' && <RulesProcedureTab caseId={data.id} isParty={isParty} />}
           {tab === 'documents' && <DocumentsTab caseId={data.id} />}
           {tab === 'messages' && <MessagesTab caseId={data.id} />}
           {tab === 'calendar' && <CalendarTab caseId={data.id} isTribunal={isTribunal} />}

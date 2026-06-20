@@ -23,6 +23,8 @@ import { PaymentsModule } from './payments/payments.module';
 import { AwardsModule } from './awards/awards.module';
 import { UsersModule } from './users/users.module';
 import { FeesModule } from './fees/fees.module';
+import { RulesModule } from './rules/rules.module';
+import { ServiceModule } from './service/service.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -61,6 +63,8 @@ import { HealthController } from './health/health.controller';
     AwardsModule,
     UsersModule,
     FeesModule,
+    RulesModule,
+    ServiceModule,
   ],
   controllers: [HealthController],
   providers: [
