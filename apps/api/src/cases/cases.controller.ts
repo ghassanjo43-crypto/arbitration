@@ -4,7 +4,7 @@ import { CasesService } from './cases.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { CreateCaseDraftDto, DeliberationNoteDto, SubmitCaseDto } from './dto';
+import { CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto } from './dto';
 
 @ApiTags('cases')
 @ApiBearerAuth()
@@ -43,5 +43,15 @@ export class CasesController {
   @Post(':id/deliberations')
   addDeliberation(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DeliberationNoteDto) {
     return this.cases.addDeliberation(user, id, dto);
+  }
+
+  @Get(':id/procedural-orders')
+  listOrders(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cases.listProceduralOrders(user, id);
+  }
+
+  @Post(':id/procedural-orders')
+  issueOrder(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ProceduralOrderDto) {
+    return this.cases.issueProceduralOrder(user, id, dto);
   }
 }

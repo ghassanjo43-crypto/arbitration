@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
-import { TribunalRole, PartySide } from '@prisma/client';
+import { TribunalRole, PartySide, ChallengeStatus } from '@prisma/client';
 
 export class InviteArbitratorDto {
   @IsUUID()
@@ -37,4 +37,21 @@ export class RespondToInvitationDto {
 
   @IsBoolean()
   availabilityConfirmed!: boolean;
+}
+
+export class RaiseChallengeDto {
+  @IsString()
+  challengedArbitratorUserId!: string;
+
+  @IsString()
+  grounds!: string;
+}
+
+export class DecideChallengeDto {
+  @IsEnum(ChallengeStatus)
+  status!: ChallengeStatus; // UPHELD | DISMISSED
+
+  @IsOptional()
+  @IsString()
+  decisionNote?: string;
 }

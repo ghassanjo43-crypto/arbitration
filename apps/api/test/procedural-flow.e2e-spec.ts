@@ -232,4 +232,20 @@ describe('Procedural environment (e2e)', () => {
     const blocked = await http.get('/api/dashboards/registrar').set(bearer(tok('p-claimant@e2e.test')));
     expect(blocked.status).toBe(403);
   });
+
+  it('13) the tribunal issues a procedural order; a party cannot', async () => {
+    const partyTry = await http.post(`/api/cases/${ids.caseId}/procedural-orders`).set(bearer(tok('p-claimant@e2e.test'))).send({ title: 'PO1', body: 'x' });
+    expect(partyTry.status).toBe(403);
+    const order = await http.post(`/api/cases/${ids.caseId}/procedural-orders`).set(bearer(tok('p-arbitrator@e2e.test'))).send({ title: 'Procedural timetable', body: 'The timetable is fixed as follows…' });
+    expect(order.status).toBe(201);
+    expect(order.body.number).toBe(1);
+  });
+
+  it('14) a party challenges an arbitrator; deciding requires the challenge-decide permission', async () => {
+    const challenge = await http.post(`/api/cases/${ids.caseId}/challenges`).set(bearer(tok('p-claimant@e2e.test'))).send({ challengedArbitratorUserId: ids.arbitrator, grounds: 'Apparent bias' });
+    expect(challenge.status).toBe(201);
+    // The registrar lacks CHALLENGE_DECIDE → 403.
+    const blocked = await http.post(`/api/challenges/${challenge.body.id}/decide`).set(bearer(tok('p-registrar@e2e.test'))).send({ status: 'DISMISSED' });
+    expect(blocked.status).toBe(403);
+  });
 });

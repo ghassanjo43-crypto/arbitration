@@ -58,3 +58,8 @@ export class SubmitCaseDto {
 export class DeliberationNoteDto {
   @IsString() body!: string;
 }
+
+export class ProceduralOrderDto {
+  @IsString() title!: string;
+  @IsString() body!: string;
+}

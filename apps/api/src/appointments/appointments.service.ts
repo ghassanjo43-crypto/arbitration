@@ -3,14 +3,16 @@ import {
   AppointmentStatus,
   CaseRole,
   CaseStage,
+  ChallengeStatus,
   TribunalComposition,
   TribunalRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CaseAccessService } from '../authz/case-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
-import { ConflictDisclosureDto, InviteArbitratorDto, RespondToInvitationDto } from './dto';
+import { ConflictDisclosureDto, DecideChallengeDto, InviteArbitratorDto, RaiseChallengeDto, RespondToInvitationDto } from './dto';
 
 /** Maps a tribunal seat to the case-team role that unlocks deliberation access. */
 function caseRoleForTribunalRole(role: TribunalRole): CaseRole {
@@ -36,6 +38,7 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly access: CaseAccessService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -221,6 +224,43 @@ export class AppointmentsService {
     await this.notifications.notifyCaseMembers({ caseId, key: 'TRIBUNAL_CONSTITUTED', vars: { caseRef: ref?.reference ?? caseId }, link: `/app/cases/${caseId}`, partyOnly: true });
 
     return { constituted: true, members: accepted.length };
+  }
+
+  // ---- Arbitrator challenges (Ch8) ----
+
+  async listChallenges(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    return this.prisma.arbitratorChallenge.findMany({ where: { caseId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  /** A party challenges an arbitrator. The decision is for the authorised authority. */
+  async raiseChallenge(user: AuthUser, caseId: string, dto: RaiseChallengeDto) {
+    const m = await this.access.assertCanAccessCase(user, caseId);
+    if (!m.isParty) throw new ForbiddenException('Only a party may challenge an arbitrator.');
+    const challenge = await this.prisma.arbitratorChallenge.create({
+      data: { caseId, challengedArbitratorUserId: dto.challengedArbitratorUserId, raisedBy: user.id, grounds: dto.grounds, status: ChallengeStatus.SUBMITTED },
+    });
+    await this.audit.record({ userId: user.id, action: 'CHALLENGE_RAISED', entityType: 'ArbitratorChallenge', entityId: challenge.id, caseId });
+
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({ caseId, key: 'CHALLENGE', vars: { caseRef: ref?.reference ?? caseId }, link: `/app/cases/${caseId}`, partyOnly: true });
+    return challenge;
+  }
+
+  /** The authorised appointing authority decides the challenge (guarded by CHALLENGE_DECIDE). */
+  async decideChallenge(user: AuthUser, challengeId: string, dto: DecideChallengeDto) {
+    const challenge = await this.prisma.arbitratorChallenge.findUnique({ where: { id: challengeId } });
+    if (!challenge) throw new NotFoundException('Challenge not found.');
+    if (dto.status !== ChallengeStatus.UPHELD && dto.status !== ChallengeStatus.DISMISSED) {
+      throw new BadRequestException('A decision must be UPHELD or DISMISSED.');
+    }
+    if (challenge.decidedAt) throw new BadRequestException('This challenge has already been decided.');
+    const updated = await this.prisma.arbitratorChallenge.update({
+      where: { id: challengeId },
+      data: { status: dto.status, decidedBy: user.id, decidedAt: new Date(), decisionNote: dto.decisionNote },
+    });
+    await this.audit.record({ userId: user.id, action: 'CHALLENGE_DECIDED', entityType: 'ArbitratorChallenge', entityId: challengeId, caseId: challenge.caseId, metadata: { status: dto.status } });
+    return updated;
   }
 
   private async advanceStage(caseId: string, toStage: CaseStage, actorId: string) {

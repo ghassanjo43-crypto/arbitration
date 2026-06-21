@@ -7,7 +7,7 @@ import { PermissionsGuard } from '../authz/permissions.guard';
 import { RequirePermissions } from '../authz/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { ConflictDisclosureDto, InviteArbitratorDto, RespondToInvitationDto } from './dto';
+import { ConflictDisclosureDto, DecideChallengeDto, InviteArbitratorDto, RaiseChallengeDto, RespondToInvitationDto } from './dto';
 
 @ApiTags('appointments')
 @ApiBearerAuth()
@@ -45,5 +45,23 @@ export class AppointmentsController {
   @Post('appointments/:id/respond')
   respond(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RespondToInvitationDto) {
     return this.appointments.respond(user, id, dto);
+  }
+
+  // ---- Arbitrator challenges (Ch8) ----
+  @Get('cases/:caseId/challenges')
+  listChallenges(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.appointments.listChallenges(user, caseId);
+  }
+
+  @Post('cases/:caseId/challenges')
+  raiseChallenge(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: RaiseChallengeDto) {
+    return this.appointments.raiseChallenge(user, caseId, dto);
+  }
+
+  @Post('challenges/:id/decide')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.CHALLENGE_DECIDE)
+  decideChallenge(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DecideChallengeDto) {
+    return this.appointments.decideChallenge(user, id, dto);
   }
 }

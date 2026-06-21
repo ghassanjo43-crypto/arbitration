@@ -3,8 +3,9 @@ import { CaseRole, CaseStage, PartySide } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
-import { CreateCaseDraftDto, DeliberationNoteDto, SubmitCaseDto } from './dto';
+import { CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto } from './dto';
 
 @Injectable()
 export class CasesService {
@@ -12,6 +13,7 @@ export class CasesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async nextReference(): Promise<string> {
@@ -157,5 +159,32 @@ export class CasesService {
       caseId,
     });
     return note;
+  }
+
+  // ---- Procedural orders: tribunal-issued (Ch19) ----
+
+  async listProceduralOrders(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    return this.prisma.proceduralOrder.findMany({ where: { caseId }, orderBy: { number: 'asc' } });
+  }
+
+  /** Only the tribunal may issue a procedural order. Parties are notified. */
+  async issueProceduralOrder(user: AuthUser, caseId: string, dto: ProceduralOrderDto) {
+    const m = await this.access.assertCanAccessCase(user, caseId);
+    if (!m.isTribunal) throw new ForbiddenException('Only the tribunal may issue a procedural order.');
+    const count = await this.prisma.proceduralOrder.count({ where: { caseId } });
+    const number = count + 1;
+    const order = await this.prisma.proceduralOrder.create({
+      data: { caseId, number, title: dto.title, body: dto.body, issuedById: user.id },
+    });
+    await this.audit.record({ userId: user.id, action: 'PROCEDURAL_ORDER_ISSUED', entityType: 'ProceduralOrder', entityId: order.id, caseId, metadata: { number } });
+
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({
+      caseId, key: 'ORDER_ISSUED',
+      vars: { caseRef: ref?.reference ?? caseId, orderTitle: `Procedural Order No. ${number} — ${dto.title}` },
+      link: `/app/cases/${caseId}`, partyOnly: true,
+    });
+    return order;
   }
 }
