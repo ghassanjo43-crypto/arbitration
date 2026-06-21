@@ -900,6 +900,9 @@ enum DeadlineStatus {
   MISSED
   EXTENDED
   CANCELLED
+  SUSPENDED // clock paused; remaining time preserved until resumption
+  WAIVED // requirement excused by an authorised person
+  OVERDUE // automatically flagged past-due, pending registrar/tribunal review
 }
 
 enum DayKind {
@@ -936,10 +939,30 @@ model Deadline {
   responsibleRole   CaseRole?
   requiredAction    String?
   completedAt       DateTime?
+  suspendedAt       DateTime? // when the clock was paused (status SUSPENDED)
 
   extensions DeadlineExtension[]
+  reminders  DeadlineReminder[]
 
   @@index([caseId, dueAt])
+}
+
+// A scheduled reminder for a deadline, materialised from the reminderRule
+// (e.g. "P7D,P2D,P1D" → 7/2/1 days before due). Escalation reminders are raised
+// automatically when a deadline becomes overdue so the registry/tribunal act.
+model DeadlineReminder {
+  id          String    @id @default(uuid())
+  deadlineId  String
+  deadline    Deadline  @relation(fields: [deadlineId], references: [id], onDelete: Cascade)
+  offsetToken String // ISO-8601 duration token, e.g. "P7D"; "OVERDUE" for escalation
+  scheduledFor DateTime
+  channel     String    @default("in_app") // in_app | email | registrar | tribunal
+  escalation  Boolean   @default(false)
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([deadlineId])
+  @@index([scheduledFor, sentAt])
 }
 
 // Non-destructive extensions/suspensions/waivers. The original Deadline.dueAt is

@@ -4,6 +4,9 @@ import {
   addCivilDays,
   utcToZonedCivil,
   zonedCivilToUtc,
+  computeReminderSchedule,
+  durationTokenToDays,
+  isOverdue,
   HolidayCalendarSpec,
 } from './deadline-engine';
 
@@ -161,6 +164,40 @@ describe('deadline-engine', () => {
       expect(() =>
         computeDeadline({ triggerDate: new Date(), days: 0, dayKind: 'CALENDAR', calendar: UTC_CAL }),
       ).toThrow();
+    });
+  });
+
+  describe('reminders & overdue', () => {
+    it('parses day/week duration tokens', () => {
+      expect(durationTokenToDays('P7D')).toBe(7);
+      expect(durationTokenToDays('P2W')).toBe(14);
+      expect(durationTokenToDays('P1W')).toBe(7);
+      expect(durationTokenToDays('nonsense')).toBeNull();
+    });
+
+    it('schedules reminders the right number of days before due, sorted', () => {
+      const due = new Date('2026-07-01T23:59:59.000Z');
+      const slots = computeReminderSchedule(due, 'P7D,P2D,P1D');
+      expect(slots.map((s) => s.offsetToken)).toEqual(['P7D', 'P2D', 'P1D']);
+      expect(slots[0].scheduledFor.toISOString().slice(0, 10)).toBe('2026-06-24');
+      expect(slots[2].scheduledFor.toISOString().slice(0, 10)).toBe('2026-06-30');
+    });
+
+    it('drops reminder slots already in the past relative to `from`', () => {
+      const due = new Date('2026-07-01T23:59:59.000Z');
+      const from = new Date('2026-06-30T00:00:00.000Z'); // after the P7D (06-24) and P2D (06-29) slots
+      const slots = computeReminderSchedule(due, 'P7D,P2D,P1D', from);
+      expect(slots.map((s) => s.offsetToken)).toEqual(['P1D']);
+    });
+
+    it('returns no slots for an empty rule', () => {
+      expect(computeReminderSchedule(new Date(), null)).toEqual([]);
+    });
+
+    it('flags overdue strictly after the due moment', () => {
+      const due = new Date('2026-07-01T23:59:59.000Z');
+      expect(isOverdue(due, new Date('2026-07-02T00:00:00.000Z'))).toBe(true);
+      expect(isOverdue(due, new Date('2026-07-01T00:00:00.000Z'))).toBe(false);
     });
   });
 });

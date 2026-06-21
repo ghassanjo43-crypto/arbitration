@@ -192,3 +192,48 @@ export function computeDeadline(input: DeadlineInput): DeadlineResult {
     rolledForward,
   };
 }
+
+// ---------------------------------------------------------------------------
+// REMINDERS & OVERDUE
+// ---------------------------------------------------------------------------
+
+/** Parse a simple ISO-8601 day/week duration token ("P7D", "P2W") to days. */
+export function durationTokenToDays(token: string): number | null {
+  const m = /^P(?:(\d+)W)?(?:(\d+)D)?$/.exec(token.trim().toUpperCase());
+  if (!m || (!m[1] && !m[2])) return null;
+  return (m[1] ? Number(m[1]) * 7 : 0) + (m[2] ? Number(m[2]) : 0);
+}
+
+export interface ReminderSlot {
+  offsetToken: string;
+  scheduledFor: Date;
+}
+
+/**
+ * Materialise a reminder schedule from a reminderRule like "P7D,P2D,P1D".
+ * Each token fires that many days BEFORE the due moment. Tokens that resolve to
+ * a time already in the past (relative to `from`) are dropped. Sorted ascending.
+ */
+export function computeReminderSchedule(
+  dueAt: Date,
+  reminderRule: string | null | undefined,
+  from: Date = new Date(0),
+): ReminderSlot[] {
+  if (!reminderRule) return [];
+  const slots: ReminderSlot[] = [];
+  for (const raw of reminderRule.split(',')) {
+    const token = raw.trim();
+    if (!token) continue;
+    const days = durationTokenToDays(token);
+    if (days === null) continue;
+    const scheduledFor = new Date(dueAt.getTime() - days * 24 * 60 * 60 * 1000);
+    if (scheduledFor.getTime() <= from.getTime()) continue;
+    slots.push({ offsetToken: token, scheduledFor });
+  }
+  return slots.sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
+}
+
+/** A deadline is overdue when an active (open/extended) period has passed. */
+export function isOverdue(dueAt: Date, now: Date): boolean {
+  return now.getTime() > dueAt.getTime();
+}

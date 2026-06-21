@@ -5,8 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { AuthUser } from '../auth/types';
-import { CreateDeadlineDto, ExtendDeadlineDto, GenerateDeadlineDto } from './dto';
-import { computeDeadline, HolidayCalendarSpec } from './deadline-engine';
+import { CreateDeadlineDto, DeadlineChangeDto, ExtendDeadlineDto, GenerateDeadlineDto } from './dto';
+import { computeDeadline, computeReminderSchedule, HolidayCalendarSpec } from './deadline-engine';
 
 @Injectable()
 export class DeadlinesService {
@@ -36,8 +36,23 @@ export class DeadlinesService {
         reminderRule: dto.reminderRule ?? 'P7D,P2D,P1D',
       },
     });
+    await this.scheduleReminders(deadline.id, deadline.dueAt, deadline.reminderRule);
     await this.audit.record({ userId: user.id, action: 'DEADLINE_CREATED', entityType: 'Deadline', entityId: deadline.id, caseId });
     return deadline;
+  }
+
+  /**
+   * Materialise reminder rows from a reminderRule ("P7D,P2D,P1D"). Replaces any
+   * existing UNSENT, non-escalation reminders so a moved deadline re-schedules
+   * correctly without disturbing reminders already sent or escalations raised.
+   */
+  private async scheduleReminders(deadlineId: string, dueAt: Date, reminderRule: string | null) {
+    await this.prisma.deadlineReminder.deleteMany({ where: { deadlineId, sentAt: null, escalation: false } });
+    const slots = computeReminderSchedule(dueAt, reminderRule, new Date());
+    if (slots.length === 0) return;
+    await this.prisma.deadlineReminder.createMany({
+      data: slots.map((s) => ({ deadlineId, offsetToken: s.offsetToken, scheduledFor: s.scheduledFor })),
+    });
   }
 
   /** Load a holiday calendar into the engine's spec shape (UTC fallback). */
@@ -115,6 +130,7 @@ export class DeadlinesService {
         requiredAction: def.requiredAction,
       },
     });
+    await this.scheduleReminders(deadline.id, deadline.dueAt, deadline.reminderRule);
     await this.audit.record({
       userId: user.id,
       action: 'DEADLINE_GENERATED',
@@ -166,6 +182,7 @@ export class DeadlinesService {
       }),
     ]);
 
+    await this.scheduleReminders(deadlineId, newDueAt, deadline.reminderRule);
     await this.audit.record({
       userId: user.id,
       action: 'DEADLINE_EXTENDED',
@@ -175,6 +192,112 @@ export class DeadlinesService {
       metadata: { previousDueAt: deadline.dueAt.toISOString(), newDueAt: newDueAt.toISOString(), reason: dto.reason },
     });
     return updated;
+  }
+
+  /**
+   * Suspend a deadline: pause the clock. The remaining time (dueAt − now) is
+   * preserved by recording the pause moment; dueAt is NOT moved here. Only an
+   * authorised person may suspend. The change is logged, never silent.
+   */
+  async suspend(user: AuthUser, deadlineId: string, dto: DeadlineChangeDto) {
+    const deadline = await this.prisma.deadline.findUnique({ where: { id: deadlineId } });
+    if (!deadline) throw new NotFoundException('Deadline not found.');
+    await this.assertCanManage(user, deadline.caseId);
+    if (deadline.status === DeadlineStatus.SUSPENDED) {
+      throw new BadRequestException('Deadline is already suspended.');
+    }
+
+    const now = new Date();
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.deadlineExtension.create({
+        data: { deadlineId, kind: DeadlineChangeKind.SUSPENSION, previousDueAt: deadline.dueAt, newDueAt: null, reason: dto.reason, orderedById: user.id, orderReference: dto.orderReference },
+      }),
+      this.prisma.deadline.update({ where: { id: deadlineId }, data: { status: DeadlineStatus.SUSPENDED, suspendedAt: now } }),
+    ]);
+    await this.audit.record({ userId: user.id, action: 'DEADLINE_SUSPENDED', entityType: 'Deadline', entityId: deadlineId, caseId: deadline.caseId, metadata: { reason: dto.reason } });
+    return updated;
+  }
+
+  /**
+   * Resume a suspended deadline: the preserved remaining time is added to the
+   * resumption moment to compute the new dueAt. Original values are kept in the
+   * RESUMPTION log row.
+   */
+  async resume(user: AuthUser, deadlineId: string, dto: DeadlineChangeDto) {
+    const deadline = await this.prisma.deadline.findUnique({ where: { id: deadlineId } });
+    if (!deadline) throw new NotFoundException('Deadline not found.');
+    await this.assertCanManage(user, deadline.caseId);
+    if (deadline.status !== DeadlineStatus.SUSPENDED || !deadline.suspendedAt) {
+      throw new BadRequestException('Deadline is not suspended.');
+    }
+
+    const now = new Date();
+    // Remaining time captured at suspension: dueAt − suspendedAt (never negative).
+    const remainingMs = Math.max(0, deadline.dueAt.getTime() - deadline.suspendedAt.getTime());
+    const newDueAt = new Date(now.getTime() + remainingMs);
+
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.deadlineExtension.create({
+        data: { deadlineId, kind: DeadlineChangeKind.RESUMPTION, previousDueAt: deadline.dueAt, newDueAt, reason: dto.reason, orderedById: user.id, orderReference: dto.orderReference },
+      }),
+      this.prisma.deadline.update({ where: { id: deadlineId }, data: { status: DeadlineStatus.OPEN, dueAt: newDueAt, suspendedAt: null } }),
+    ]);
+    await this.scheduleReminders(deadlineId, newDueAt, deadline.reminderRule);
+    await this.audit.record({ userId: user.id, action: 'DEADLINE_RESUMED', entityType: 'Deadline', entityId: deadlineId, caseId: deadline.caseId, metadata: { newDueAt: newDueAt.toISOString(), remainingMs } });
+    return updated;
+  }
+
+  /** Waive a deadline (excuse the requirement). Authorised persons only; logged. */
+  async waive(user: AuthUser, deadlineId: string, dto: DeadlineChangeDto) {
+    const deadline = await this.prisma.deadline.findUnique({ where: { id: deadlineId } });
+    if (!deadline) throw new NotFoundException('Deadline not found.');
+    await this.assertCanManage(user, deadline.caseId);
+
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.deadlineExtension.create({
+        data: { deadlineId, kind: DeadlineChangeKind.WAIVER, previousDueAt: deadline.dueAt, newDueAt: null, reason: dto.reason, orderedById: user.id, orderReference: dto.orderReference },
+      }),
+      this.prisma.deadline.update({ where: { id: deadlineId }, data: { status: DeadlineStatus.WAIVED } }),
+      this.prisma.deadlineReminder.deleteMany({ where: { deadlineId, sentAt: null } }),
+    ]);
+    await this.audit.record({ userId: user.id, action: 'DEADLINE_WAIVED', entityType: 'Deadline', entityId: deadlineId, caseId: deadline.caseId, metadata: { reason: dto.reason } });
+    return updated;
+  }
+
+  /**
+   * Flag overdue deadlines on a case and escalate them. An OPEN/EXTENDED deadline
+   * whose due moment has passed becomes OVERDUE and raises a one-off escalation
+   * reminder to the registry. Idempotent: a deadline already escalated is skipped.
+   */
+  async escalateOverdue(user: AuthUser, caseId: string) {
+    await this.assertCanManage(user, caseId);
+    const now = new Date();
+    const candidates = await this.prisma.deadline.findMany({
+      where: { caseId, status: { in: [DeadlineStatus.OPEN, DeadlineStatus.EXTENDED] }, dueAt: { lt: now } },
+    });
+    const escalated: string[] = [];
+    for (const d of candidates) {
+      const existing = await this.prisma.deadlineReminder.findFirst({ where: { deadlineId: d.id, escalation: true } });
+      await this.prisma.deadline.update({ where: { id: d.id }, data: { status: DeadlineStatus.OVERDUE } });
+      if (!existing) {
+        await this.prisma.deadlineReminder.create({
+          data: { deadlineId: d.id, offsetToken: 'OVERDUE', scheduledFor: now, channel: 'registrar', escalation: true },
+        });
+      }
+      await this.audit.record({ userId: user.id, action: 'DEADLINE_OVERDUE_ESCALATED', entityType: 'Deadline', entityId: d.id, caseId, metadata: { dueAt: d.dueAt.toISOString() } });
+      escalated.push(d.id);
+    }
+    return { escalated, count: escalated.length };
+  }
+
+  /** Reminders for a case (countdown/escalation worklist). */
+  async listReminders(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    return this.prisma.deadlineReminder.findMany({
+      where: { deadline: { caseId } },
+      orderBy: { scheduledFor: 'asc' },
+      include: { deadline: { select: { title: true, dueAt: true, status: true } } },
+    });
   }
 
   /** Mark a deadline met by recording a filing-completion timestamp. */

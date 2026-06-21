@@ -15,6 +15,12 @@ export class ExtendDeadlineDto {
   @IsOptional() @IsString() orderReference?: string;
 }
 
+/** Suspend, resume or waive a deadline. Reason is always mandatory. */
+export class DeadlineChangeDto {
+  @IsString() reason!: string;
+  @IsOptional() @IsString() orderReference?: string;
+}
+
 /** Generate a deadline from a rule deadline definition + a procedural event. */
 export class GenerateDeadlineDto {
   @IsString() definitionKey!: string;
