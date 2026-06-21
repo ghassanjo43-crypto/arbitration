@@ -80,6 +80,22 @@
 .badge--success { background: rgba(47, 107, 79, 0.12); color: var(--c-success); }
 .badge--info { background: rgba(47, 86, 127, 0.1); color: var(--c-info); }
 .badge--warning { background: rgba(154, 107, 47, 0.12); color: var(--c-warning); }
+.badge--danger { background: rgba(160, 43, 43, 0.12); color: var(--c-danger, #a02b2b); }
+
+/* Procedural timeline (phase-grouped case progress) */
+.proc-timeline { list-style: none; margin: var(--sp-4) 0 0; padding: 0; position: relative; }
+.proc-timeline__phase { position: relative; padding-inline-start: var(--sp-6); padding-bottom: var(--sp-4); }
+.proc-timeline__phase::before {
+  content: ''; position: absolute; inset-inline-start: 9px; top: 18px; bottom: -4px; width: 2px; background: var(--c-border, #e2ddd2);
+}
+.proc-timeline__phase:last-child::before { display: none; }
+.proc-timeline__marker {
+  position: absolute; inset-inline-start: 2px; top: 6px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--c-surface, #fff); border: 2px solid var(--c-border, #cfc8ba); z-index: 1;
+}
+.proc-timeline__phase--done .proc-timeline__marker { background: var(--c-success); border-color: var(--c-success); }
+.proc-timeline__phase--current .proc-timeline__marker { background: var(--c-gold-600, #b8860b); border-color: var(--c-gold-600, #b8860b); box-shadow: 0 0 0 4px var(--accent-soft, rgba(184,134,11,0.18)); }
+.proc-timeline__phase--upcoming { opacity: 0.7; }
 
 /* Alerts */
 .alert {

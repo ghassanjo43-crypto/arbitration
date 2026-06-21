@@ -124,5 +124,22 @@
     "status": "Status",
     "amount": "Amount",
     "open": "Open"
+  },
+  "timeline": {
+    "title": "Procedural timeline",
+    "done": "Completed",
+    "current": "In progress",
+    "upcoming": "Upcoming",
+    "terminal": "This case is no longer in the standard procedure.",
+    "noEvents": "No recorded events in this phase yet.",
+    "phase": {
+      "COMMENCEMENT": "Commencement",
+      "SERVICE": "Service",
+      "TRIBUNAL_CONSTITUTION": "Tribunal constitution",
+      "PLEADINGS": "Pleadings",
+      "EVIDENCE": "Evidence",
+      "HEARING": "Hearing",
+      "AWARD": "Award"
+    }
   }
 }

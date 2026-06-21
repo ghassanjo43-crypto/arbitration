@@ -10,6 +10,7 @@ import { FinanceTab } from './case/FinanceTab';
 import { AwardsTab } from './case/AwardsTab';
 import { DeliberationsTab } from './case/DeliberationsTab';
 import { RulesProcedureTab } from './case/RulesProcedureTab';
+import { ProceduralTimelineTab } from './case/ProceduralTimelineTab';
 
 interface CaseDetail {
   id: string;
@@ -25,7 +26,7 @@ interface CaseDetail {
   _membership: { isTribunal: boolean; caseRoles: string[] };
 }
 
-type TabKey = 'overview' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
+type TabKey = 'overview' | 'timeline' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
 
 const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPONDENT_REPRESENTATIVE'];
 
@@ -49,6 +50,7 @@ export function CaseWorkspace() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'timeline', label: 'Timeline' },
     { key: 'rules', label: 'Rules & Procedure' },
     { key: 'documents', label: 'Documents' },
     { key: 'messages', label: 'Messages' },
@@ -107,6 +109,7 @@ export function CaseWorkspace() {
               </div>
             </div>
           )}
+          {tab === 'timeline' && <ProceduralTimelineTab caseId={data.id} stage={data.stage} />}
           {tab === 'rules' && <RulesProcedureTab caseId={data.id} isParty={isParty} />}
           {tab === 'documents' && <DocumentsTab caseId={data.id} />}
           {tab === 'messages' && <MessagesTab caseId={data.id} />}

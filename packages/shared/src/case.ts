@@ -85,6 +85,71 @@ export const ORDERED_STAGES: CaseStage[] = [
   CaseStage.CLOSED,
 ];
 
+/** High-level procedural phases for the case timeline (Chapter-aligned). */
+export enum ProceduralPhase {
+  COMMENCEMENT = 'COMMENCEMENT',
+  SERVICE = 'SERVICE',
+  TRIBUNAL_CONSTITUTION = 'TRIBUNAL_CONSTITUTION',
+  PLEADINGS = 'PLEADINGS',
+  EVIDENCE = 'EVIDENCE',
+  HEARING = 'HEARING',
+  AWARD = 'AWARD',
+}
+
+/** Ordered phases, each grouping the lifecycle stages that belong to it. */
+export const PROCEDURAL_PHASES: { phase: ProceduralPhase; stages: CaseStage[] }[] = [
+  {
+    phase: ProceduralPhase.COMMENCEMENT,
+    stages: [
+      CaseStage.DRAFT, CaseStage.SUBMITTED, CaseStage.FILING_FEE_PENDING,
+      CaseStage.ADMINISTRATIVE_REVIEW, CaseStage.DEFICIENCY_NOTICE_ISSUED,
+      CaseStage.AWAITING_CLAIMANT_CORRECTION, CaseStage.CASE_REGISTERED,
+    ],
+  },
+  {
+    phase: ProceduralPhase.SERVICE,
+    stages: [
+      CaseStage.NOTICE_BEING_SERVED, CaseStage.AWAITING_RESPONDENT_REGISTRATION,
+      CaseStage.AWAITING_RESPONSE, CaseStage.RESPONSE_RECEIVED,
+    ],
+  },
+  {
+    phase: ProceduralPhase.TRIBUNAL_CONSTITUTION,
+    stages: [
+      CaseStage.ARBITRATION_TERMS_PENDING, CaseStage.TRIBUNAL_APPOINTMENT_PENDING,
+      CaseStage.CONFLICT_CHECK, CaseStage.ARBITRATOR_ACCEPTANCE_PENDING, CaseStage.TRIBUNAL_CONSTITUTED,
+    ],
+  },
+  {
+    phase: ProceduralPhase.PLEADINGS,
+    stages: [
+      CaseStage.PRELIMINARY_CONFERENCE_SCHEDULED, CaseStage.PROCEDURAL_TIMETABLE_ISSUED,
+      CaseStage.STATEMENT_OF_CLAIM, CaseStage.STATEMENT_OF_DEFENCE, CaseStage.COUNTERCLAIM,
+      CaseStage.REPLY, CaseStage.REJOINDER,
+    ],
+  },
+  {
+    phase: ProceduralPhase.EVIDENCE,
+    stages: [CaseStage.DOCUMENT_PRODUCTION, CaseStage.WITNESS_EVIDENCE, CaseStage.EXPERT_EVIDENCE],
+  },
+  {
+    phase: ProceduralPhase.HEARING,
+    stages: [CaseStage.HEARING_PREPARATION, CaseStage.HEARING_IN_PROGRESS, CaseStage.POST_HEARING_SUBMISSIONS],
+  },
+  {
+    phase: ProceduralPhase.AWARD,
+    stages: [
+      CaseStage.DELIBERATION, CaseStage.DRAFT_AWARD, CaseStage.AWARD_ISSUED,
+      CaseStage.CORRECTION_OR_INTERPRETATION, CaseStage.CLOSED,
+    ],
+  },
+];
+
+/** The procedural phase a stage belongs to (null for non-linear terminal states). */
+export function phaseOfStage(stage: CaseStage): ProceduralPhase | null {
+  return PROCEDURAL_PHASES.find((p) => p.stages.includes(stage))?.phase ?? null;
+}
+
 export enum ConfidentialityLevel {
   PUBLIC = 'PUBLIC',
   CASE_PARTIES = 'CASE_PARTIES',
