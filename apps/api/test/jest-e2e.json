@@ -5,6 +5,7 @@
   "transform": { "^.+\\.ts$": ["ts-jest", { "isolatedModules": true }] },
   "testEnvironment": "node",
   "testTimeout": 120000,
+  "maxWorkers": 1,
   "moduleNameMapper": {
     "^@gaap/shared$": "<rootDir>/../../../packages/shared/src/index.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
