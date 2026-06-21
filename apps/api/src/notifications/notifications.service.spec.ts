@@ -1,0 +1,71 @@
+import { NotificationsService } from './notifications.service';
+import { NOTIFICATION_TEMPLATES, NotificationTemplateKey, interpolate } from './notification-templates';
+
+const KEYS = Object.keys(NOTIFICATION_TEMPLATES) as NotificationTemplateKey[];
+
+describe('notification templates', () => {
+  it('defines EN and AR subject + body for every template key', () => {
+    for (const key of KEYS) {
+      const t = NOTIFICATION_TEMPLATES[key];
+      expect(t.en.subject.trim()).not.toBe('');
+      expect(t.en.body.trim()).not.toBe('');
+      expect(t.ar.subject.trim()).not.toBe('');
+      expect(t.ar.body.trim()).not.toBe('');
+    }
+  });
+
+  it('covers the full spec notification set', () => {
+    // The spec enumerates 20 notifiable events.
+    expect(KEYS).toHaveLength(20);
+    expect(KEYS).toEqual(expect.arrayContaining([
+      'FILING_SUBMITTED', 'DEFICIENCY_NOTICE', 'CASE_REGISTERED', 'NOTICE_ISSUED', 'RESPONSE_DUE',
+      'DEADLINE_REMINDER', 'DEADLINE_OVERDUE', 'APPOINTMENT_INVITATION', 'CONFLICT_DISCLOSURE', 'CHALLENGE',
+      'TRIBUNAL_CONSTITUTED', 'PROCEDURAL_CONFERENCE', 'FILING_RECEIVED', 'HEARING_SCHEDULED', 'PAYMENT_REQUESTED',
+      'PAYMENT_OVERDUE', 'SUBSTITUTE_PAYMENT_OPPORTUNITY', 'ORDER_ISSUED', 'AWARD_ISSUED', 'CORRECTION_DEADLINE',
+    ]));
+  });
+
+  it('interpolates {{vars}} and leaves unknown placeholders empty', () => {
+    expect(interpolate('Case {{caseRef}} due {{dueDate}}', { caseRef: 'GAAP-1', dueDate: '2026-07-01' })).toBe('Case GAAP-1 due 2026-07-01');
+    expect(interpolate('Hello {{missing}}!', {})).toBe('Hello !');
+  });
+});
+
+describe('NotificationsService', () => {
+  function make(preferredLanguage = 'en') {
+    const created: Record<string, unknown>[] = [];
+    const prisma = {
+      userProfile: { findUnique: jest.fn().mockResolvedValue({ preferredLanguage }) },
+      notification: { create: jest.fn(({ data }) => (created.push(data), { id: 'n1', ...data })) },
+    };
+    const email = { send: jest.fn().mockResolvedValue(undefined) };
+    return { service: new NotificationsService(prisma as never, email as never), prisma, email, created };
+  }
+
+  it('renders Arabic when requested and English by default', () => {
+    const { service } = make();
+    const en = service.render('AWARD_ISSUED', 'en', { caseRef: 'GAAP-1' });
+    const ar = service.render('AWARD_ISSUED', 'ar', { caseRef: 'GAAP-1' });
+    expect(en.subject).toContain('Award issued');
+    expect(ar.subject).toContain('صدور حكم');
+    expect(en.subject).toContain('GAAP-1');
+  });
+
+  it('notify persists an in-platform notification in the user\'s preferred language', async () => {
+    const { service, created } = make('ar');
+    await service.notify({ userId: 'u1', key: 'CASE_REGISTERED', vars: { caseRef: 'GAAP-2' } });
+    expect(created[0].title).toContain('تم تسجيل القضية');
+    expect(created[0].type).toBe('CASE_UPDATE');
+  });
+
+  it('dispatch creates the notification and sends the email; an email failure does not block it', async () => {
+    const { service, email, created } = make('en');
+    await service.dispatch({ userId: 'u1', to: 'p@x.com', key: 'PAYMENT_REQUESTED', vars: { caseRef: 'GAAP-3', amount: 1000, currency: 'USD', dueDate: '2026-07-01' } });
+    expect(created).toHaveLength(1);
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'p@x.com' }));
+
+    email.send.mockRejectedValueOnce(new Error('smtp down'));
+    const res = await service.dispatch({ userId: 'u1', to: 'p@x.com', key: 'PAYMENT_OVERDUE', vars: { caseRef: 'GAAP-3' } });
+    expect(res.id).toBe('n1'); // still created despite email failure
+  });
+});

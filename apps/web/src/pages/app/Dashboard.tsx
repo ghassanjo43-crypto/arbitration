@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CaseSummary } from '@gaap/shared';
 import { Permission, Role } from '@gaap/shared';
@@ -7,6 +8,7 @@ import { api } from '../../lib/api';
 
 export function Dashboard() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   const { data: cases, isLoading } = useQuery<CaseSummary[]>({
     queryKey: ['my-cases'],
     queryFn: async () => (await api.get('/cases')).data,
@@ -25,13 +27,13 @@ export function Dashboard() {
             <p className="muted">{user?.email} · {user?.roles.join(', ')}</p>
           </div>
           <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-            {has(Permission.CASE_VIEW_QUEUE) && <Link to="/app/desk/registrar" className="btn btn--ghost">Registry desk</Link>}
-            {is(Role.ARBITRATOR) && <Link to="/app/desk/arbitrator" className="btn btn--ghost">Arbitrator desk</Link>}
-            {(has(Permission.INVOICE_MANAGE) || has(Permission.PAYMENT_RECORD)) && <Link to="/app/desk/finance" className="btn btn--ghost">Finance desk</Link>}
-            {has(Permission.USER_MANAGE) && <Link to="/app/admin/users" className="btn btn--ghost">Manage users</Link>}
-            {has(Permission.NEWS_MANAGE) && <Link to="/app/admin/content" className="btn btn--ghost">Manage content</Link>}
-            <Link to="/file-a-case" className="btn btn--gold">File a new case</Link>
-            <button className="btn btn--ghost" onClick={() => void logout()}>Sign out</button>
+            {has(Permission.CASE_VIEW_QUEUE) && <Link to="/app/desk/registrar" className="btn btn--ghost">{t('desk.registrar')}</Link>}
+            {is(Role.ARBITRATOR) && <Link to="/app/desk/arbitrator" className="btn btn--ghost">{t('desk.arbitrator')}</Link>}
+            {(has(Permission.INVOICE_MANAGE) || has(Permission.PAYMENT_RECORD)) && <Link to="/app/desk/finance" className="btn btn--ghost">{t('desk.finance')}</Link>}
+            {has(Permission.USER_MANAGE) && <Link to="/app/admin/users" className="btn btn--ghost">{t('desk.manageUsers')}</Link>}
+            {has(Permission.NEWS_MANAGE) && <Link to="/app/admin/content" className="btn btn--ghost">{t('desk.manageContent')}</Link>}
+            <Link to="/file-a-case" className="btn btn--gold">{t('desk.fileCase')}</Link>
+            <button className="btn btn--ghost" onClick={() => void logout()}>{t('desk.signOut')}</button>
           </div>
         </div>
 

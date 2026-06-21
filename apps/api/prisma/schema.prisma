@@ -95,6 +95,7 @@ model UserProfile {
   phone       String?
   avatarUrl   String?
   timezone    String   @default("UTC")
+  preferredLanguage String @default("en") // "en" | "ar" — drives notification language
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

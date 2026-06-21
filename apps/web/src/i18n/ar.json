@@ -125,6 +125,35 @@
     "amount": "المبلغ",
     "open": "مفتوحة"
   },
+  "case": {
+    "back": "العودة إلى لوحة التحكم",
+    "tribunalMember": "عضو هيئة التحكيم",
+    "parties": "الأطراف",
+    "progress": "التقدّم",
+    "seat": "مقر التحكيم",
+    "governingLaw": "القانون الحاكم",
+    "language": "اللغة",
+    "tab": {
+      "overview": "نظرة عامة",
+      "timeline": "الجدول الزمني",
+      "rules": "القواعد والإجراءات",
+      "documents": "المستندات",
+      "messages": "الرسائل",
+      "calendar": "التقويم",
+      "finance": "المالية",
+      "awards": "الأحكام",
+      "deliberations": "المداولات"
+    }
+  },
+  "desk": {
+    "registrar": "مكتب القلم",
+    "arbitrator": "مكتب المحكّم",
+    "finance": "المكتب المالي",
+    "manageUsers": "إدارة المستخدمين",
+    "manageContent": "إدارة المحتوى",
+    "fileCase": "تقديم قضية جديدة",
+    "signOut": "تسجيل الخروج"
+  },
   "timeline": {
     "title": "الجدول الزمني الإجرائي",
     "done": "مكتملة",

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { ORDERED_STAGES } from '@gaap/shared';
 import { api } from '../../lib/api';
@@ -32,6 +33,7 @@ const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPO
 
 export function CaseWorkspace() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabKey>('overview');
 
   const { data, isLoading, isError } = useQuery<CaseDetail>({
@@ -49,27 +51,27 @@ export function CaseWorkspace() {
   const isParty = data._membership.caseRoles.some((r) => PARTY_ROLES.includes(r));
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'timeline', label: 'Timeline' },
-    { key: 'rules', label: 'Rules & Procedure' },
-    { key: 'documents', label: 'Documents' },
-    { key: 'messages', label: 'Messages' },
-    { key: 'calendar', label: 'Calendar' },
-    { key: 'finance', label: 'Finance' },
-    { key: 'awards', label: 'Awards' },
-    ...(isTribunal ? [{ key: 'deliberations' as TabKey, label: 'Deliberations' }] : []),
+    { key: 'overview', label: t('case.tab.overview') },
+    { key: 'timeline', label: t('case.tab.timeline') },
+    { key: 'rules', label: t('case.tab.rules') },
+    { key: 'documents', label: t('case.tab.documents') },
+    { key: 'messages', label: t('case.tab.messages') },
+    { key: 'calendar', label: t('case.tab.calendar') },
+    { key: 'finance', label: t('case.tab.finance') },
+    { key: 'awards', label: t('case.tab.awards') },
+    ...(isTribunal ? [{ key: 'deliberations' as TabKey, label: t('case.tab.deliberations') }] : []),
   ];
 
   return (
     <div className="section">
       <div className="container">
-        <Link to="/app" className="muted">← Back to dashboard</Link>
+        <Link to="/app" className="muted">← {t('case.back')}</Link>
         <div className="dash-head" style={{ marginTop: 'var(--sp-3)' }}>
           <div>
             <p className="eyebrow">{data.reference}</p>
             <h1 style={{ marginBottom: 4 }}>{data.title}</h1>
             <span className="badge badge--info">{data.stage.replaceAll('_', ' ')}</span>
-            {isTribunal && <span className="badge badge--gold" style={{ marginInlineStart: 8 }}>Tribunal member</span>}
+            {isTribunal && <span className="badge badge--gold" style={{ marginInlineStart: 8 }}>{t('case.tribunalMember')}</span>}
           </div>
         </div>
 
@@ -85,19 +87,19 @@ export function CaseWorkspace() {
           {tab === 'overview' && (
             <div className="grid grid-2" style={{ alignItems: 'start' }}>
               <div className="card">
-                <h2 className="card__title">Parties</h2>
+                <h2 className="card__title">{t('case.parties')}</h2>
                 <table className="table">
                   <tbody>{data.parties.map((p) => <tr key={p.id}><td>{p.side}</td><td>{p.legalName}</td></tr>)}</tbody>
                 </table>
                 <hr className="rule" />
                 <dl className="kv">
-                  <div><dt>Seat</dt><dd>{data.seat ?? '—'}</dd></div>
-                  <div><dt>Governing law</dt><dd>{data.governingLaw ?? '—'}</dd></div>
-                  <div><dt>Language</dt><dd>{data.language}</dd></div>
+                  <div><dt>{t('case.seat')}</dt><dd>{data.seat ?? '—'}</dd></div>
+                  <div><dt>{t('case.governingLaw')}</dt><dd>{data.governingLaw ?? '—'}</dd></div>
+                  <div><dt>{t('case.language')}</dt><dd>{data.language}</dd></div>
                 </dl>
               </div>
               <div className="card">
-                <h2 className="card__title">Progress</h2>
+                <h2 className="card__title">{t('case.progress')}</h2>
                 <ul className="timeline">
                   {ORDERED_STAGES.slice(0, Math.max(currentIndex + 2, 6)).map((s, i) => (
                     <li key={s} className={`timeline__item ${i < currentIndex ? 'timeline__item--done' : ''} ${i === currentIndex ? 'timeline__item--current' : ''}`}>

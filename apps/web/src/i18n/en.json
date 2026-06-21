@@ -125,6 +125,35 @@
     "amount": "Amount",
     "open": "Open"
   },
+  "case": {
+    "back": "Back to dashboard",
+    "tribunalMember": "Tribunal member",
+    "parties": "Parties",
+    "progress": "Progress",
+    "seat": "Seat",
+    "governingLaw": "Governing law",
+    "language": "Language",
+    "tab": {
+      "overview": "Overview",
+      "timeline": "Timeline",
+      "rules": "Rules & Procedure",
+      "documents": "Documents",
+      "messages": "Messages",
+      "calendar": "Calendar",
+      "finance": "Finance",
+      "awards": "Awards",
+      "deliberations": "Deliberations"
+    }
+  },
+  "desk": {
+    "registrar": "Registry desk",
+    "arbitrator": "Arbitrator desk",
+    "finance": "Finance desk",
+    "manageUsers": "Manage users",
+    "manageContent": "Manage content",
+    "fileCase": "File a new case",
+    "signOut": "Sign out"
+  },
   "timeline": {
     "title": "Procedural timeline",
     "done": "Completed",
