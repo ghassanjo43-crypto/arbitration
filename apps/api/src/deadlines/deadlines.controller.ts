@@ -67,4 +67,9 @@ export class DeadlinesController {
   escalate(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
     return this.deadlines.escalateOverdue(user, caseId);
   }
+
+  @Post('cases/:caseId/deadlines/run-reminders')
+  runReminders(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.deadlines.runDueReminders(user, caseId);
+  }
 }

@@ -35,6 +35,7 @@ describe('RuleEngineService.applyEvent', () => {
     ]);
 
     const prisma = {
+      case: { findUnique: jest.fn().mockResolvedValue({ reference: 'GAAP-2026-1' }) },
       caseRuleSet: { findUnique: jest.fn().mockResolvedValue({ ruleSetVersionId: 'v1' }) },
       caseProceduralEvent: { findFirst: jest.fn().mockResolvedValue(event) },
       ruleTrigger: { findMany: triggerFindMany },
@@ -50,7 +51,8 @@ describe('RuleEngineService.applyEvent', () => {
       ruleAuditLog: { create: auditCreate },
     };
     const audit = { record: jest.fn() };
-    const engine = new RuleEngineService(prisma as never, audit as never);
+    const notifications = { notifyCaseMembers: jest.fn().mockResolvedValue(undefined) };
+    const engine = new RuleEngineService(prisma as never, audit as never, notifications as never);
     return { engine, prisma, deadlineCreate, executionCreate, auditCreate, triggerFindMany };
   }
 

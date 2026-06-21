@@ -299,6 +299,34 @@ export class DeadlinesService {
     return { escalated, count: escalated.length };
   }
 
+  /**
+   * Dispatch any due, unsent (non-escalation) reminders for a case, marking them
+   * sent. Idempotent and safe to call repeatedly — intended to be driven by a
+   * scheduled job (or manually by the registry).
+   */
+  async runDueReminders(user: AuthUser, caseId: string) {
+    await this.assertCanManage(user, caseId);
+    const now = new Date();
+    const due = await this.prisma.deadlineReminder.findMany({
+      where: {
+        sentAt: null, escalation: false, scheduledFor: { lte: now },
+        deadline: { caseId, status: { in: [DeadlineStatus.OPEN, DeadlineStatus.EXTENDED] } },
+      },
+      include: { deadline: { select: { title: true, dueAt: true, timezone: true } } },
+    });
+    if (due.length === 0) return { sent: 0 };
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    for (const r of due) {
+      await this.notifications.notifyCaseMembers({
+        caseId, key: 'DEADLINE_REMINDER',
+        vars: { title: r.deadline.title, caseRef: ref?.reference ?? caseId, dueDate: r.deadline.dueAt.toISOString().slice(0, 10), timezone: r.deadline.timezone },
+        link: `/app/cases/${caseId}`, partyOnly: true,
+      });
+      await this.prisma.deadlineReminder.update({ where: { id: r.id }, data: { sentAt: now } });
+    }
+    return { sent: due.length };
+  }
+
   /** Reminders for a case (countdown/escalation worklist). */
   async listReminders(user: AuthUser, caseId: string) {
     await this.access.assertCanAccessCase(user, caseId);

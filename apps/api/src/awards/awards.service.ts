@@ -90,12 +90,14 @@ export class AwardsService {
     ]);
     await this.advanceStage(award.caseId, CaseStage.AWARD_ISSUED, user.id);
 
-    // Bilingual AWARD_ISSUED notification to the parties (with enforcement note).
+    // Bilingual AWARD_ISSUED notification to the parties (with enforcement note),
+    // and the opening of the correction/interpretation period.
     const ref = await this.prisma.case.findUnique({ where: { id: award.caseId }, select: { reference: true } });
-    await this.notifications.notifyCaseMembers({
-      caseId: award.caseId, key: 'AWARD_ISSUED', vars: { caseRef: ref?.reference ?? award.caseId },
-      link: `/app/cases/${award.caseId}`, partyOnly: true,
-    });
+    const caseRef = ref?.reference ?? award.caseId;
+    const link = `/app/cases/${award.caseId}`;
+    const correctionDue = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10); // configurable window
+    await this.notifications.notifyCaseMembers({ caseId: award.caseId, key: 'AWARD_ISSUED', vars: { caseRef }, link, partyOnly: true });
+    await this.notifications.notifyCaseMembers({ caseId: award.caseId, key: 'CORRECTION_DEADLINE', vars: { caseRef, dueDate: correctionDue }, link, partyOnly: true });
 
     await this.audit.record({ userId: user.id, action: 'AWARD_ISSUED', entityType: 'Award', entityId: awardId, caseId: award.caseId, metadata: { recipients: parties.length } });
     return { issued: true, deliveries: parties.length };

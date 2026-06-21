@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { VideoService } from '../providers/video/video.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { AddParticipantDto, ScheduleHearingDto } from './dto';
 
@@ -15,6 +16,7 @@ export class HearingsService {
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
     private readonly video: VideoService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async assertCanManage(user: AuthUser, caseId: string) {
@@ -61,6 +63,17 @@ export class HearingsService {
     });
 
     await this.audit.record({ userId: user.id, action: 'HEARING_SCHEDULED', entityType: 'Hearing', entityId: hearing.id, caseId });
+
+    // Notify the parties. A preliminary procedural conference gets its own template.
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    const isConference = /conference/i.test(dto.title);
+    await this.notifications.notifyCaseMembers({
+      caseId,
+      key: isConference ? 'PROCEDURAL_CONFERENCE' : 'HEARING_SCHEDULED',
+      vars: { caseRef: ref?.reference ?? caseId, dateTime: new Date(dto.scheduledStart).toISOString().slice(0, 16).replace('T', ' '), timezone: hearing.timezone },
+      link: `/app/cases/${caseId}`,
+      partyOnly: true,
+    });
     return hearing;
   }
 

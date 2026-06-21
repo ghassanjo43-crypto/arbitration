@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DayKind, Prisma, RuleActionKind, RuleExecutionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { computeDeadline, HolidayCalendarSpec } from '../deadlines/deadline-engine';
 
 /** A single thing the engine did (or chose not to do) in response to an event. */
@@ -37,6 +38,7 @@ export class RuleEngineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -232,6 +234,16 @@ export class RuleEngineService {
       createdEntityId: deadline.id,
       actorUserId,
     });
+
+    // A response deadline is worth telling the parties about directly.
+    if (/RESPONSE/i.test(def.key)) {
+      const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+      await this.notifications.notifyCaseMembers({
+        caseId, key: 'RESPONSE_DUE',
+        vars: { caseRef: ref?.reference ?? caseId, dueDate: computed.dueAt.toISOString().slice(0, 10), timezone: calendar.timezone, title: def.label },
+        link: `/app/cases/${caseId}`, partyOnly: true,
+      });
+    }
 
     return { ruleId, ruleNumber, actionKind: RuleActionKind.CREATE_DEADLINE, status: execution.status, detail: execution.detail ?? undefined, createdEntityType: 'Deadline', createdEntityId: deadline.id };
   }

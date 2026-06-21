@@ -129,6 +129,10 @@ export class AppointmentsService {
       caseId: invitation.caseId,
       metadata: { hasConflict: dto.hasConflict },
     });
+
+    const ref = await this.prisma.case.findUnique({ where: { id: invitation.caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({ caseId: invitation.caseId, key: 'CONFLICT_DISCLOSURE', vars: { caseRef: ref?.reference ?? invitation.caseId }, link: `/app/cases/${invitation.caseId}`, partyOnly: true });
+
     return disclosure;
   }
 

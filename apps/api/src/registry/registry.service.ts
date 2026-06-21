@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { CaseStage } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 
 /** Permitted forward transitions the registrar may apply administratively. */
@@ -23,6 +24,7 @@ export class RegistryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** The registrar's queue: cases needing administrative attention. */
@@ -70,6 +72,18 @@ export class RegistryService {
       caseId,
       metadata: { from: theCase.stage, to: toStage, note },
     });
+
+    // Notify the parties on the key administrative milestones.
+    const key = toStage === CaseStage.CASE_REGISTERED ? 'CASE_REGISTERED'
+      : toStage === CaseStage.DEFICIENCY_NOTICE_ISSUED ? 'DEFICIENCY_NOTICE'
+      : null;
+    if (key) {
+      const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+      await this.notifications.notifyCaseMembers({
+        caseId, key, vars: { caseRef: ref?.reference ?? caseId, dueDate: note ?? '—' },
+        link: `/app/cases/${caseId}`, partyOnly: true,
+      });
+    }
     return { id: caseId, stage: toStage };
   }
 }
