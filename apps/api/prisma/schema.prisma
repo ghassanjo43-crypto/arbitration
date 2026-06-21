@@ -476,6 +476,11 @@ model Case {
   filings           Filing[]
   productionRequests ProductionRequest[]
 
+  // Witness & expert evidence
+  witnesses         Witness[]
+  experts           Expert[]
+  evidenceObjections EvidenceObjection[]
+
   @@index([stage])
 }
 
@@ -2457,4 +2462,153 @@ model ProductionDocument {
   createdAt  DateTime          @default(now())
 
   @@unique([requestId, documentId])
+}
+
+// ============================================================================
+// WITNESS EVIDENCE (Chapter 13) & EXPERT EVIDENCE (Chapter 14)
+// The tribunal rules on admissibility and weight; the portal only records the
+// evidence and its provenance.
+// ============================================================================
+
+enum WitnessStatus {
+  PROPOSED
+  CONFIRMED
+  WITHDRAWN
+  TESTIFIED
+}
+
+enum OathKind {
+  NONE
+  OATH
+  AFFIRMATION
+}
+
+model Witness {
+  id                   String        @id @default(uuid())
+  caseId               String
+  case                 Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  partyId              String? // the party calling the witness
+  fullName             String
+  capacity             String? // fact witness, custodian, etc.
+  language             String        @default("en")
+  interpreterRequired  Boolean       @default(false)
+  availabilityNote     String?
+  identityVerified     Boolean       @default(false)
+  isolationAcknowledged Boolean      @default(false) // witness-isolation protocol accepted
+  crossExaminationRequired Boolean   @default(false)
+  hearingAttendance    String? // INVITED | CONFIRMED | ATTENDED | ABSENT
+  oath                 OathKind      @default(NONE)
+  oathRecordedAt       DateTime?
+  status               WitnessStatus @default(PROPOSED)
+  proposedById         String
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  statements WitnessStatement[]
+
+  @@index([caseId])
+}
+
+model WitnessStatement {
+  id            String   @id @default(uuid())
+  witnessId     String
+  witness       Witness  @relation(fields: [witnessId], references: [id], onDelete: Cascade)
+  title         String
+  language      String   @default("en")
+  documentId    String? // links to the uploaded statement Document
+  version       Int      @default(1)
+  submittedById String
+  submittedAt   DateTime @default(now())
+
+  @@index([witnessId])
+}
+
+enum ExpertAppointment {
+  PARTY_APPOINTED
+  TRIBUNAL_APPOINTED
+}
+
+enum ExpertStatus {
+  PROPOSED
+  APPOINTED
+  REPORTED
+  WITHDRAWN
+}
+
+enum ExpertReportKind {
+  REPORT
+  REPLY_REPORT
+  JOINT_STATEMENT
+}
+
+model Expert {
+  id                 String            @id @default(uuid())
+  caseId             String
+  case               Case              @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  appointment        ExpertAppointment
+  partyId            String? // null for tribunal-appointed
+  fullName           String
+  expertise          String
+  instructions       String?
+  independenceDeclared Boolean         @default(false)
+  conflictDisclosed  Boolean           @default(false)
+  feeArrangement     String?
+  status             ExpertStatus      @default(PROPOSED)
+  proposedById       String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  reports ExpertReport[]
+
+  @@index([caseId])
+}
+
+model ExpertReport {
+  id            String           @id @default(uuid())
+  expertId      String
+  expert        Expert           @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  kind          ExpertReportKind @default(REPORT)
+  title         String
+  documentId    String?
+  version       Int              @default(1)
+  submittedById String
+  submittedAt   DateTime         @default(now())
+
+  @@index([expertId])
+}
+
+enum EvidenceTargetType {
+  DOCUMENT
+  WITNESS
+  WITNESS_STATEMENT
+  EXPERT
+  EXPERT_REPORT
+}
+
+enum EvidenceObjectionStatus {
+  RAISED
+  UPHELD
+  DISMISSED
+  DEFERRED
+}
+
+// A party objection to evidence (authenticity, admissibility, privilege, ...).
+// Only the tribunal rules on it.
+model EvidenceObjection {
+  id          String                  @id @default(uuid())
+  caseId      String
+  case        Case                    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  targetType  EvidenceTargetType
+  targetId    String
+  ground      String // AUTHENTICITY | ADMISSIBILITY | PRIVILEGE | RELEVANCE | ...
+  detail      String?
+  raisedById  String
+  status      EvidenceObjectionStatus @default(RAISED)
+  ruling      String?
+  ruledById   String?
+  ruledAt     DateTime?
+  createdAt   DateTime                @default(now())
+
+  @@index([caseId])
+  @@index([targetType, targetId])
 }
