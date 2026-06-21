@@ -17,6 +17,7 @@ import { Dashboard } from './pages/app/Dashboard';
 import { CaseWorkspace } from './pages/app/CaseWorkspace';
 import { AdminContent } from './pages/app/AdminContent';
 import { AdminUsers } from './pages/app/AdminUsers';
+import { RegistrarDashboard, ArbitratorDashboard, FinanceDashboard } from './pages/app/RoleDashboards';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { RulesFull } from './pages/RulesFull';
 
@@ -55,6 +56,9 @@ export default function App() {
           <Route path="app" element={<ProtectedRoute />}>
             <Route index element={<Dashboard />} />
             <Route path="cases/:id" element={<CaseWorkspace />} />
+            <Route path="desk/registrar" element={<RegistrarDashboard />} />
+            <Route path="desk/arbitrator" element={<ArbitratorDashboard />} />
+            <Route path="desk/finance" element={<FinanceDashboard />} />
             <Route path="admin/content" element={<AdminContent />} />
             <Route path="admin/users" element={<AdminUsers />} />
           </Route>

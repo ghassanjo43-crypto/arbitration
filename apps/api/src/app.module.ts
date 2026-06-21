@@ -30,6 +30,7 @@ import { EvidenceModule } from './evidence/evidence.module';
 import { DefaultsModule } from './defaults/defaults.module';
 import { InterimModule } from './interim/interim.module';
 import { CaseTracksModule } from './casetracks/casetracks.module';
+import { DashboardsModule } from './dashboards/dashboards.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -75,6 +76,7 @@ import { HealthController } from './health/health.controller';
     DefaultsModule,
     InterimModule,
     CaseTracksModule,
+    DashboardsModule,
   ],
   controllers: [HealthController],
   providers: [
