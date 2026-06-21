@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from '../LanguageSwitcher';
+import { NotificationBell } from '../NotificationBell';
 import { useAuth } from '../../auth/AuthContext';
 
 function initials(name: string): string {
@@ -66,6 +67,7 @@ export function Header() {
 
         <div className="site-header__actions">
           <LanguageSwitcher />
+          <NotificationBell />
           {user ? (
             <div className="user-menu">
               <Link to="/app" className="user-chip" title={`${user.displayName} — ${user.email}`}>

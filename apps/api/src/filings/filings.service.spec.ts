@@ -21,6 +21,7 @@ describe('FilingsService', () => {
     function makeService() {
       const { calls, rec, audit, engine } = base();
       const prisma = {
+        case: { findUnique: jest.fn().mockResolvedValue({ reference: 'GAAP-2026-1' }) },
         filing: {
           count: jest.fn().mockResolvedValue(0),
           create: jest.fn().mockImplementation(({ data }) => rec('filing.create', data) && { id: 'f1', ...data }),
@@ -31,7 +32,8 @@ describe('FilingsService', () => {
         caseProceduralEvent: { create: jest.fn().mockResolvedValue({ id: 'e1' }) },
       };
       const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isParty: true, isRegistrar: false }) };
-      const service = new FilingsService(prisma as never, audit as never, access as never, engine as never);
+      const notifications = { dispatch: jest.fn().mockResolvedValue(undefined), notifyCaseMembers: jest.fn().mockResolvedValue(undefined) };
+      const service = new FilingsService(prisma as never, audit as never, access as never, engine as never, notifications as never);
       return { service, prisma, calls, engine };
     }
 
@@ -70,7 +72,8 @@ describe('FilingsService', () => {
         filingReceipt: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
       };
       const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isRegistrar: true, isTribunal: false }) };
-      const service = new FilingsService(prisma as never, audit as never, access as never, engine as never);
+      const notifications = { dispatch: jest.fn().mockResolvedValue(undefined), notifyCaseMembers: jest.fn().mockResolvedValue(undefined) };
+      const service = new FilingsService(prisma as never, audit as never, access as never, engine as never, notifications as never);
       return { service, calls };
     }
 

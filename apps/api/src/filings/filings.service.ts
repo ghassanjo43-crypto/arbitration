@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { RuleEngineService } from '../rules/rule-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { DecideCorrectionDto, RequestCorrectionDto, SubmitFilingDto } from './dto';
 
@@ -28,6 +29,7 @@ export class FilingsService {
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
     private readonly engine: RuleEngineService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Submit a filing. Parties/representatives file; the registry may also file. */
@@ -72,6 +74,13 @@ export class FilingsService {
       data: { caseId, type: 'FILING_SUBMITTED', actorUserId: user.id, metadata: JSON.stringify({ filingType: dto.type, filingNumber }) },
     });
     await this.engine.applyEvent({ caseId, eventId: event.id, eventType: 'FILING_SUBMITTED', actorUserId: user.id });
+
+    // Notify the submitter (FILING_SUBMITTED) and the other parties (FILING_RECEIVED).
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    const vars = { caseRef: ref?.reference ?? caseId, filingType: dto.type.replaceAll('_', ' '), filingNumber };
+    const link = `/app/cases/${caseId}`;
+    await this.notifications.dispatch({ userId: user.id, key: 'FILING_SUBMITTED', vars, link }).catch(() => undefined);
+    await this.notifications.notifyCaseMembers({ caseId, key: 'FILING_RECEIVED', vars, link, excludeUserId: user.id, partyOnly: true });
 
     return this.get(user, filing.id);
   }

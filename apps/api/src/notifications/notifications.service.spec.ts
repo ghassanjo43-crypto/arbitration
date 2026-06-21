@@ -58,6 +58,29 @@ describe('NotificationsService', () => {
     expect(created[0].type).toBe('CASE_UPDATE');
   });
 
+  it('notifyCaseMembers fans out to each active member except the excluded actor', async () => {
+    const created: Record<string, unknown>[] = [];
+    const prisma = {
+      caseTeamMember: {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'u1', user: { email: 'a@x.com', profile: { preferredLanguage: 'en' } } },
+          { userId: 'u2', user: { email: 'b@x.com', profile: { preferredLanguage: 'ar' } } },
+          { userId: 'actor', user: { email: 'c@x.com', profile: { preferredLanguage: 'en' } } },
+          { userId: 'u1', user: { email: 'a@x.com', profile: { preferredLanguage: 'en' } } }, // duplicate role row
+        ]),
+      },
+      userProfile: { findUnique: jest.fn() },
+      notification: { create: jest.fn(({ data }) => (created.push(data), { id: 'n', ...data })) },
+    };
+    const email = { send: jest.fn().mockResolvedValue(undefined) };
+    const service = new NotificationsService(prisma as never, email as never);
+    await service.notifyCaseMembers({ caseId: 'c1', key: 'FILING_RECEIVED', vars: { caseRef: 'GAAP-9', filingType: 'Statement of Claim' }, excludeUserId: 'actor' });
+    // u1 (once, deduped) + u2 — actor excluded.
+    expect(created).toHaveLength(2);
+    const ar = created.find((c) => c.userId === 'u2');
+    expect(ar?.title).toContain('تم استلام إيداع');
+  });
+
   it('dispatch creates the notification and sends the email; an email failure does not block it', async () => {
     const { service, email, created } = make('en');
     await service.dispatch({ userId: 'u1', to: 'p@x.com', key: 'PAYMENT_REQUESTED', vars: { caseRef: 'GAAP-3', amount: 1000, currency: 'USD', dueDate: '2026-07-01' } });

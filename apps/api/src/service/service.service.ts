@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { EmailService } from '../providers/email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import {
   AcknowledgeNoticeDto,
@@ -40,6 +41,7 @@ export class ServiceService {
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async assertCanServe(user: AuthUser, caseId: string) {
@@ -176,6 +178,16 @@ export class ServiceService {
       userAgent: ctx.userAgent,
       metadata: { type: dto.type, recipientCount: dto.recipients.length },
     });
+
+    // Notify recipients who have a portal account that a notice awaits them.
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    const vars = { caseRef: ref?.reference ?? caseId, noticeType: dto.type.replaceAll('_', ' ') };
+    const link = `/app/cases/${caseId}`;
+    for (const recipient of notice.recipients) {
+      if (recipient.userId) {
+        await this.notifications.dispatch({ userId: recipient.userId, to: recipient.email ?? undefined, key: 'NOTICE_ISSUED', vars, link }).catch(() => undefined);
+      }
+    }
 
     return this.getNotice(user, notice.id);
   }

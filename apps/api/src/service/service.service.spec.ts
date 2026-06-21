@@ -24,6 +24,7 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
     const createdRecipient = { id: 'r1', email: 'party@example.com', firstAccessedAt: null };
 
     const prisma = {
+      case: { findUnique: jest.fn().mockResolvedValue({ reference: 'GAAP-2026-1' }) },
       formalNotice: {
         create: jest.fn().mockResolvedValue({ id: 'n1', caseId: 'c1', recipients: [createdRecipient] }),
         findUnique: jest.fn().mockResolvedValue({
@@ -65,7 +66,8 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
         ? jest.fn().mockResolvedValue(undefined)
         : jest.fn().mockRejectedValue(new Error('bounce')),
     };
-    const service = new ServiceService(prisma as never, audit as never, access as never, email as never);
+    const notifications = { dispatch: jest.fn().mockResolvedValue(undefined) };
+    const service = new ServiceService(prisma as never, audit as never, access as never, email as never, notifications as never);
     return { service, attempts, recipientUpdates, failures, documents, email };
   }
 
@@ -144,7 +146,7 @@ describe('ServiceService.acknowledge — sealed acknowledgement', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({}) };
-    const service = new ServiceService(prisma as never, audit as never, access as never, { send: jest.fn() } as never);
+    const service = new ServiceService(prisma as never, audit as never, access as never, { send: jest.fn() } as never, { dispatch: jest.fn() } as never);
     return { service, acks };
   }
 

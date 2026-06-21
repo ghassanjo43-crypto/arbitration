@@ -91,6 +91,42 @@ export class NotificationsService {
   }
 
   /**
+   * Fan a template out to the members of a case, each in their own language.
+   * `partyOnly` limits to the disputing parties/representatives; `excludeUserId`
+   * skips the actor who triggered the event. Never throws — dispatch failures are
+   * logged per recipient.
+   */
+  async notifyCaseMembers(params: {
+    caseId: string;
+    key: NotificationTemplateKey;
+    vars: Vars;
+    link?: string;
+    excludeUserId?: string;
+    partyOnly?: boolean;
+  }) {
+    const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPONDENT_REPRESENTATIVE'];
+    const members = await this.prisma.caseTeamMember.findMany({
+      where: {
+        caseId: params.caseId,
+        active: true,
+        ...(params.partyOnly ? { caseRole: { in: PARTY_ROLES as never } } : {}),
+      },
+      select: { userId: true, user: { select: { email: true, profile: { select: { preferredLanguage: true } } } } },
+    });
+    const seen = new Set<string>();
+    for (const m of members) {
+      if (!m.userId || m.userId === params.excludeUserId || seen.has(m.userId)) continue;
+      seen.add(m.userId);
+      const lang = m.user?.profile?.preferredLanguage === 'ar' ? 'ar' : 'en';
+      try {
+        await this.dispatch({ userId: m.userId, to: m.user?.email, key: params.key, vars: params.vars, lang, link: params.link });
+      } catch (err) {
+        this.logger.error(`notifyCaseMembers: failed for user ${m.userId}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * Optional SMS abstraction. No SMS provider is wired by default; this is the
    * single seam where one would be integrated. It never throws.
    */

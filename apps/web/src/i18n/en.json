@@ -154,6 +154,11 @@
     "fileCase": "File a new case",
     "signOut": "Sign out"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications.",
+    "ariaOpen": "Open notifications"
+  },
   "timeline": {
     "title": "Procedural timeline",
     "done": "Completed",
