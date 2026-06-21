@@ -108,6 +108,35 @@ Password for all: `Password!2026`
 | Client       | client1@example.example |
 | Arbitrator   | arbitrator4@panel.example *(appointed to case GAAP-2026-000002)* |
 
+### Resetting a login password
+
+Passwords are hashed with argon2 plus a server-side **pepper** (`PASSWORD_PEPPER`).
+If that pepper differs between when an account was created and when the API runs,
+**every** login fails with "wrong credentials" — even with the correct password.
+
+`apps/api/scripts/reset-password.mjs` resets (or creates) an account using the
+**same pepper the API runs with**, so the new hash verifies:
+
+```bash
+# Both values come from environment variables — never paste them into a commit,
+# a script, a chat, or logs.
+DATABASE_URL="$DATABASE_URL" \
+PASSWORD_PEPPER="$PASSWORD_PEPPER" \
+node apps/api/scripts/reset-password.mjs superadmin@arbitration.example 'YourNewPass'
+```
+
+Guidelines:
+
+- **`PASSWORD_PEPPER`** must be the exact value the target API uses (e.g. copy it
+  from the API service's environment). A different pepper produces hashes that
+  will not verify.
+- **`DATABASE_URL`**: use the database's **Internal** URL when running *inside*
+  the same host/network as the database, and the **External** URL only when
+  running **locally** against a remote (e.g. managed) database.
+- **Never** hard-code or commit real `DATABASE_URL` / `PASSWORD_PEPPER` values or
+  any secret; pass them via environment variables and keep them out of shell
+  history and logs. They are excluded from the repo by `.gitignore` (`.env`).
+
 ## Scripts
 
 | Command | Description |
