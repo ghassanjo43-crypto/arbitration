@@ -4,6 +4,7 @@ import { Permission } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { CreateDeadlineDto, DeadlineChangeDto, ExtendDeadlineDto, GenerateDeadlineDto } from './dto';
 import { computeDeadline, computeReminderSchedule, HolidayCalendarSpec } from './deadline-engine';
@@ -14,6 +15,7 @@ export class DeadlinesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Deadlines are set by the registrar (CASE_MANAGE_DEADLINES) or the tribunal. */
@@ -276,12 +278,19 @@ export class DeadlinesService {
       where: { caseId, status: { in: [DeadlineStatus.OPEN, DeadlineStatus.EXTENDED] }, dueAt: { lt: now } },
     });
     const escalated: string[] = [];
+    const ref = candidates.length ? await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } }) : null;
     for (const d of candidates) {
       const existing = await this.prisma.deadlineReminder.findFirst({ where: { deadlineId: d.id, escalation: true } });
       await this.prisma.deadline.update({ where: { id: d.id }, data: { status: DeadlineStatus.OVERDUE } });
       if (!existing) {
         await this.prisma.deadlineReminder.create({
           data: { deadlineId: d.id, offsetToken: 'OVERDUE', scheduledFor: now, channel: 'registrar', escalation: true },
+        });
+        // Notify the case (parties + registry) once per overdue deadline.
+        await this.notifications.notifyCaseMembers({
+          caseId, key: 'DEADLINE_OVERDUE',
+          vars: { title: d.title, caseRef: ref?.reference ?? caseId, dueDate: d.dueAt.toISOString().slice(0, 10) },
+          link: `/app/cases/${caseId}`,
         });
       }
       await this.audit.record({ userId: user.id, action: 'DEADLINE_OVERDUE_ESCALATED', entityType: 'Deadline', entityId: d.id, caseId, metadata: { dueAt: d.dueAt.toISOString() } });

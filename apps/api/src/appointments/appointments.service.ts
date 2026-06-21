@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { ConflictDisclosureDto, InviteArbitratorDto, RespondToInvitationDto } from './dto';
 
@@ -35,13 +36,14 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Registrar action (guarded by APPOINTMENT_MANAGE at the controller). */
   async invite(actor: AuthUser, caseId: string, dto: InviteArbitratorDto) {
     const [theCase, arbitrator] = await Promise.all([
-      this.prisma.case.findUnique({ where: { id: caseId }, select: { id: true } }),
-      this.prisma.arbitratorProfile.findUnique({ where: { id: dto.arbitratorId }, select: { id: true, approvalStatus: true } }),
+      this.prisma.case.findUnique({ where: { id: caseId }, select: { id: true, reference: true } }),
+      this.prisma.arbitratorProfile.findUnique({ where: { id: dto.arbitratorId }, select: { id: true, approvalStatus: true, userId: true } }),
     ]);
     if (!theCase) throw new NotFoundException('Case not found.');
     if (!arbitrator) throw new NotFoundException('Arbitrator not found.');
@@ -68,6 +70,15 @@ export class AppointmentsService {
       caseId,
       metadata: { arbitratorId: dto.arbitratorId, role: dto.proposedRole },
     });
+
+    // Invite the arbitrator (their portal account) in their language.
+    if (arbitrator.userId) {
+      await this.notifications.dispatch({
+        userId: arbitrator.userId, key: 'APPOINTMENT_INVITATION',
+        vars: { caseRef: theCase.reference, role: String(dto.proposedRole).replaceAll('_', ' ') },
+        link: '/app',
+      }).catch(() => undefined);
+    }
     return invitation;
   }
 
@@ -201,6 +212,10 @@ export class AppointmentsService {
     await this.prisma.tribunal.update({ where: { id: tribunal.id }, data: { constituted: true, constitutedAt: new Date() } });
     await this.advanceStage(caseId, CaseStage.TRIBUNAL_CONSTITUTED, actor.id);
     await this.audit.record({ userId: actor.id, action: 'TRIBUNAL_CONSTITUTED', entityType: 'Tribunal', entityId: tribunal.id, caseId });
+
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({ caseId, key: 'TRIBUNAL_CONSTITUTED', vars: { caseRef: ref?.reference ?? caseId }, link: `/app/cases/${caseId}`, partyOnly: true });
+
     return { constituted: true, members: accepted.length };
   }
 

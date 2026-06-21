@@ -16,6 +16,7 @@ import { Permission } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { allocate, PartyShareInput } from './allocation-engine';
 import { CreateDepositRequestDto, RecordDepositPaymentDto, RefundDto } from './deposits.dto';
@@ -28,6 +29,7 @@ export class DepositsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async assertFinance(user: AuthUser, caseId: string) {
@@ -121,6 +123,14 @@ export class DepositsService {
     await this.audit.record({
       userId: user.id, action: 'DEPOSIT_REQUESTED', entityType: 'DepositRequest', entityId: request.id, caseId,
       metadata: { totalAmount: dto.totalAmount, allocationMethod: dto.allocationMethod },
+    });
+
+    // Notify the parties that a payment is requested.
+    const ref = await this.prisma.case.findUnique({ where: { id: caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({
+      caseId, key: 'PAYMENT_REQUESTED',
+      vars: { caseRef: ref?.reference ?? caseId, amount: dto.totalAmount, currency, dueDate: dto.dueAt ? dto.dueAt.slice(0, 10) : '—' },
+      link: `/app/cases/${caseId}`, partyOnly: true,
     });
     return request;
   }
@@ -252,6 +262,16 @@ export class DepositsService {
       userId: user.id, action: 'PAYMENT_DEFAULT_DECLARED', entityType: 'DepositRequest', entityId: depositRequestId,
       caseId: request.caseId, metadata: { defaulted: declared.length },
     });
+
+    if (declared.length > 0) {
+      // Inform the parties of the overdue payment and the substitute-payment
+      // opportunity (without prejudice; consequences are for the tribunal).
+      const ref = await this.prisma.case.findUnique({ where: { id: request.caseId }, select: { reference: true } });
+      const vars = { caseRef: ref?.reference ?? request.caseId, amount: String(request.totalAmount), currency: request.currency };
+      const link = `/app/cases/${request.caseId}`;
+      await this.notifications.notifyCaseMembers({ caseId: request.caseId, key: 'PAYMENT_OVERDUE', vars, link, partyOnly: true });
+      await this.notifications.notifyCaseMembers({ caseId: request.caseId, key: 'SUBSTITUTE_PAYMENT_OPPORTUNITY', vars, link, partyOnly: true });
+    }
     return { defaulted: declared.length };
   }
 

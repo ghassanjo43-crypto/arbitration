@@ -36,7 +36,7 @@ describe('DepositsService.recordPayment — substitute payment', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isRegistrar: false }) };
-    const service = new DepositsService(prisma as never, audit as never, access as never);
+    const service = new DepositsService(prisma as never, audit as never, access as never, { notifyCaseMembers: jest.fn() } as never);
     return { service, updates, defaultsUpdated, prisma };
   }
 

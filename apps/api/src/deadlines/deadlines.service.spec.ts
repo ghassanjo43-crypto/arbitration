@@ -33,7 +33,7 @@ describe('DeadlinesService.extend (non-destructive)', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isTribunal: true }) };
-    const service = new DeadlinesService(prisma as never, audit as never, access as never);
+    const service = new DeadlinesService(prisma as never, audit as never, access as never, { notifyCaseMembers: jest.fn() } as never);
     return { service, prisma, audit, created };
   }
 
@@ -103,7 +103,7 @@ describe('DeadlinesService — suspend / resume / waive', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isTribunal: true }) };
-    const service = new DeadlinesService(prisma as never, audit as never, access as never);
+    const service = new DeadlinesService(prisma as never, audit as never, access as never, { notifyCaseMembers: jest.fn() } as never);
     return { service, logRows, updates, prisma };
   }
 

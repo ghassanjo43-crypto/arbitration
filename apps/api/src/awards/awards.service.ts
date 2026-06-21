@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { CaseStage, NotificationType } from '@prisma/client';
+import { CaseStage } from '@prisma/client';
 import { ENFORCEMENT_WORDING } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import { CorrectionRequestDto, CreateAwardDto, SignAwardDto } from './dto';
 
@@ -13,6 +14,7 @@ export class AwardsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async assertTribunal(user: AuthUser, caseId: string) {
@@ -85,17 +87,16 @@ export class AwardsService {
           deliveredAt: new Date(),
         })),
       }),
-      this.prisma.notification.createMany({
-        data: parties.map((p) => ({
-          userId: p.userId,
-          type: NotificationType.CASE_UPDATE,
-          title: 'An award has been issued',
-          body: 'A new arbitral award is available in your case workspace.',
-          link: `/app/cases/${award.caseId}`,
-        })),
-      }),
     ]);
     await this.advanceStage(award.caseId, CaseStage.AWARD_ISSUED, user.id);
+
+    // Bilingual AWARD_ISSUED notification to the parties (with enforcement note).
+    const ref = await this.prisma.case.findUnique({ where: { id: award.caseId }, select: { reference: true } });
+    await this.notifications.notifyCaseMembers({
+      caseId: award.caseId, key: 'AWARD_ISSUED', vars: { caseRef: ref?.reference ?? award.caseId },
+      link: `/app/cases/${award.caseId}`, partyOnly: true,
+    });
+
     await this.audit.record({ userId: user.id, action: 'AWARD_ISSUED', entityType: 'Award', entityId: awardId, caseId: award.caseId, metadata: { recipients: parties.length } });
     return { issued: true, deliveries: parties.length };
   }
