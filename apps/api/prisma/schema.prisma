@@ -484,6 +484,9 @@ model Case {
   // Default / non-participation proceedings
   defaultProceedings DefaultProceeding[]
 
+  // Interim & emergency measures
+  interimMeasures   InterimMeasure[]
+
   @@index([stage])
 }
 
@@ -2728,4 +2731,88 @@ model DefaultDecision {
   proceduralOrderRef      String?
   decidedById             String
   decidedAt               DateTime          @default(now())
+}
+
+// ============================================================================
+// INTERIM & EMERGENCY MEASURES (Chapter 16)
+//
+// The portal records the application, opposition and the tribunal's decision —
+// it NEVER itself grants relief. Only the tribunal may grant, modify or
+// discharge an interim measure.
+// ============================================================================
+
+enum InterimMeasureType {
+  ASSET_PRESERVATION
+  EVIDENCE_PRESERVATION
+  CONFIDENTIALITY
+  SECURITY_FOR_COSTS
+  STATUS_QUO
+  INSPECTION
+  DOCUMENT_PRESERVATION
+  URGENT_PROTECTION
+  OTHER
+}
+
+enum InterimUrgency {
+  STANDARD
+  URGENT
+  EMERGENCY
+}
+
+enum InterimStatus {
+  APPLIED
+  OPPOSED
+  UNDER_CONSIDERATION
+  GRANTED
+  GRANTED_IN_PART
+  DENIED
+  MODIFIED
+  DISCHARGED
+}
+
+enum InterimEventKind {
+  NOTICE
+  OPPOSITION
+  DECISION
+  MODIFICATION
+  DISCHARGE
+  COMPLIANCE
+}
+
+model InterimMeasure {
+  id               String             @id @default(uuid())
+  caseId           String
+  case             Case               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  measureNumber    String // e.g. IM-0001 (per case)
+  type             InterimMeasureType
+  urgency          InterimUrgency     @default(STANDARD)
+  applicantPartyId String?
+  appliedById      String
+  reliefSought     String
+  grounds          String?
+  status           InterimStatus      @default(APPLIED)
+  decision         String?
+  decisionReason   String?
+  decidedById      String?
+  decidedAt        DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  events InterimMeasureEvent[]
+
+  @@unique([caseId, measureNumber])
+  @@index([caseId])
+  @@index([status])
+}
+
+model InterimMeasureEvent {
+  id        String           @id @default(uuid())
+  measureId String
+  measure   InterimMeasure   @relation(fields: [measureId], references: [id], onDelete: Cascade)
+  kind      InterimEventKind
+  detail    String
+  actorById String
+  createdAt DateTime         @default(now())
+
+  @@index([measureId])
 }
