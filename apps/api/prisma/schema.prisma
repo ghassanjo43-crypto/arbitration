@@ -481,6 +481,9 @@ model Case {
   experts           Expert[]
   evidenceObjections EvidenceObjection[]
 
+  // Default / non-participation proceedings
+  defaultProceedings DefaultProceeding[]
+
   @@index([stage])
 }
 
@@ -2611,4 +2614,118 @@ model EvidenceObjection {
 
   @@index([caseId])
   @@index([targetType, targetId])
+}
+
+// ============================================================================
+// DEFAULT / NON-PARTICIPATION PROCEEDINGS (Chapter 17)
+//
+// Due-process safeguard: failure to participate must NEVER automatically result
+// in an award for the other party. Before the tribunal may proceed in default,
+// a full review (agreement, jurisdiction, valid service, delivery records,
+// opportunity to respond, evidence, explanation, applicable law, fairness) must
+// be satisfied and a registrar report with verified service must exist.
+// ============================================================================
+
+enum DefaultStage {
+  OPENED
+  WARNING_ISSUED
+  FINAL_REMINDER_ISSUED
+  REGISTRAR_REVIEW
+  TRIBUNAL_REVIEW
+  PROCEED_AUTHORISED
+  PROCEED_REFUSED
+  CURED
+}
+
+enum DefaultNoticeKind {
+  WARNING
+  FINAL_REMINDER
+}
+
+enum DefaultReviewFactor {
+  ARBITRATION_AGREEMENT
+  JURISDICTION
+  VALID_SERVICE
+  DELIVERY_RECORDS
+  OPPORTUNITY_TO_RESPOND
+  EVIDENCE
+  EXPLANATION_FOR_ABSENCE
+  APPLICABLE_LAW
+  FAIRNESS
+}
+
+enum DefaultOutcome {
+  PROCEED
+  REFUSE
+  CURED
+}
+
+model DefaultProceeding {
+  id                   String       @id @default(uuid())
+  caseId               String
+  case                 Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  defaultingPartyId    String?
+  defaultingParticipant String // legal name / role of the non-participating party
+  basis                String // what was missed, e.g. RESPONSE_NOT_FILED, DEPOSIT_UNPAID
+  stage                DefaultStage @default(OPENED)
+  openedById           String
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  notices         DefaultNotice[]
+  reviewItems     DefaultReviewItem[]
+  registrarReport DefaultRegistrarReport?
+  decision        DefaultDecision?
+
+  @@index([caseId])
+}
+
+model DefaultNotice {
+  id           String            @id @default(uuid())
+  proceedingId String
+  proceeding   DefaultProceeding @relation(fields: [proceedingId], references: [id], onDelete: Cascade)
+  kind         DefaultNoticeKind
+  body         String
+  deadlineAt   DateTime?
+  issuedById   String
+  issuedAt     DateTime          @default(now())
+
+  @@index([proceedingId])
+}
+
+model DefaultReviewItem {
+  id           String              @id @default(uuid())
+  proceedingId String
+  proceeding   DefaultProceeding   @relation(fields: [proceedingId], references: [id], onDelete: Cascade)
+  factor       DefaultReviewFactor
+  satisfied    Boolean             @default(false)
+  note         String?
+  reviewedById String?
+  reviewedAt   DateTime?
+
+  @@unique([proceedingId, factor])
+}
+
+model DefaultRegistrarReport {
+  id             String            @id @default(uuid())
+  proceedingId   String            @unique
+  proceeding     DefaultProceeding @relation(fields: [proceedingId], references: [id], onDelete: Cascade)
+  summary        String
+  serviceVerified Boolean          @default(false)
+  preparedById   String
+  preparedAt     DateTime          @default(now())
+}
+
+// The tribunal's reasoned decision. PROCEED only authorises proceeding in the
+// party's absence — it never, by itself, establishes the other party's claim.
+model DefaultDecision {
+  id                      String            @id @default(uuid())
+  proceedingId            String            @unique
+  proceeding              DefaultProceeding @relation(fields: [proceedingId], references: [id], onDelete: Cascade)
+  outcome                 DefaultOutcome
+  reason                  String
+  defaultHearingScheduled Boolean           @default(false)
+  proceduralOrderRef      String?
+  decidedById             String
+  decidedAt               DateTime          @default(now())
 }

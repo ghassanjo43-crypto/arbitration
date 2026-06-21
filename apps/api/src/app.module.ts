@@ -27,6 +27,7 @@ import { RulesModule } from './rules/rules.module';
 import { ServiceModule } from './service/service.module';
 import { FilingsModule } from './filings/filings.module';
 import { EvidenceModule } from './evidence/evidence.module';
+import { DefaultsModule } from './defaults/defaults.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -69,6 +70,7 @@ import { HealthController } from './health/health.controller';
     ServiceModule,
     FilingsModule,
     EvidenceModule,
+    DefaultsModule,
   ],
   controllers: [HealthController],
   providers: [
