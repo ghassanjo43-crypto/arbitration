@@ -39,19 +39,27 @@ merits-private documents — that is by design and covered by unit tests.
 
 ## API modules
 
-Implemented now: `auth`, `arbitrators`, `content` (news/highlights/publications),
-`cases` (+ deliberations), `fees`, `audit`, `health`, plus cross-cutting `prisma`, `authz`,
-`providers`.
+Implemented: `auth`, `users`, `arbitrators`, `lawyers`, `parties`, `content`
+(news/highlights/publications), `cases` (+ deliberations), `appointments`,
+`registry`, `documents`, `messages`, `audit`, `health`, `fees` (+ deposits),
+`payments`, `awards`, `hearings`, and the procedural-environment modules:
 
-Planned (schema + authz already in place): `users/profiles`, `companies`, `lawyers`,
-`parties`, `representatives`, `tribunal`, `appointments`, `conflicts`, `challenges`,
-`documents`, `messages`, `notifications`, `deadlines`, `hearings`, `payments`, `awards`,
-`administration`, `compliance`, `support`, `settings`.
+- `rules` — versioned rules + the operational engine (`docs/RULES_ENGINE.md`)
+- `service` — electronic service of documents, Ch2 (`docs/ELECTRONIC_SERVICE_PROTOCOL.md`)
+- `deadlines` — deadline engine, Ch6 (`docs/DEADLINE_CALCULATION.md`)
+- `filings` — pleadings (Ch10) + document production (Ch12)
+- `evidence` — witnesses (Ch13), experts (Ch14), evidence objections
+- `defaults` — default / non-participation proceedings (Ch17)
+- `interim` — interim & emergency measures (Ch16)
+- `casetracks` — expedited (Ch23) + multi-party / consolidation / joinder (Ch24)
+- `dashboards` — registrar / arbitrator / finance aggregation endpoints
+
+Cross-cutting: `prisma`, `authz`, `providers` (email / storage / payment / video).
 
 ## Data model
 
-See `apps/api/prisma/schema.prisma` — ~60 models, all UUID keys, `createdAt`/`updatedAt`,
-`deletedAt` where retention matters. Highlights:
+See `apps/api/prisma/schema.prisma` — 100+ models, all UUID keys,
+`createdAt`/`updatedAt`, `deletedAt` where retention matters. Highlights:
 
 - Identity: `User`, `UserProfile`, `IndividualProfile`, `Company`, `CompanyMember`,
   `LawyerProfile`, `ArbitratorProfile` (+ expertise/language/availability/reference).
@@ -63,6 +71,22 @@ See `apps/api/prisma/schema.prisma` — ~60 models, all UUID keys, `createdAt`/`
 - Procedure: `ProceduralOrder`, `Deadline`, `Hearing`, `HearingRoom`, `HearingParticipant`.
 - Finance: `FeeEstimate`, `Invoice`, `Payment`, `PaymentAllocation`.
 - Awards: `Award`, `AwardDelivery`, `CorrectionRequest`.
+- Rules engine: `RuleSet`/`RuleSetVersion`/`RuleChapter`/`Rule`, `RuleTrigger`/`RuleAction`,
+  `Rule*Requirement`, `CaseRuleSet`/`CaseRuleAcceptance`/`CaseProceduralEvent`,
+  `CaseRuleExecution`/`CaseRuleOverride`/`CaseRuleException`, `RuleAuditLog`.
+- Service (Ch2): `FormalNotice`, `NoticeRecipient`, `NoticeDocument`,
+  `NoticeDeliveryAttempt`, `NoticeAccessEvent`, `NoticeAcknowledgement`,
+  `NoticeFailure`, `SubstituteServiceOrder`, `ServiceCertificate`.
+- Deadlines (Ch6): `Deadline`, `DeadlineExtension`, `DeadlineReminder`,
+  `HolidayCalendar`, `Holiday`.
+- Filings/production (Ch10/12): `Filing`, `FilingReceipt`, `FilingCorrection`,
+  `ProductionRequest`, join tables.
+- Evidence (Ch13/14): `Witness`, `WitnessStatement`, `Expert`, `ExpertReport`,
+  `EvidenceObjection`.
+- Default/interim/tracks: `DefaultProceeding`(+notice/review/report/decision),
+  `InterimMeasure`(+events), `ExpeditedTrack`(+consents), `PartyJoinderRequest`.
+- Finance (Ch18): `FeeSchedule*`, `FeeEstimate`, `DepositRequest`/`DepositAllocation`/
+  `DepositPayment`, `Invoice`, `Payment`, `Refund`, `PaymentDefault`, `FinancialLedgerEntry`.
 - Content/ops: `NewsArticle`, `CourtHighlight`, `Publication`, `AuditLog`, `SupportTicket`,
   `ComplianceCheck`, `IdentityVerification`, `SystemSetting`, `Session`, `LoginEvent`,
   `EmailToken`.
@@ -87,10 +111,13 @@ Hook Form + Zod for forms.
 `.env` drives everything. `NODE_ENV` switches secure cookie flags, Prisma logging, and the
 production Docker target. No secrets are committed; `.env.example` documents every variable.
 
-## Roadmap to the remaining phases
+## Further reading
 
-Phases 3–6 add the full 9-step filing wizard, tribunal appointment workflow, document
-repository with watermarking/bundles, secure messaging with ex-parte guards, procedural
-calendar, hearing module, payment flows, award lifecycle, content CMS admin, the role-specific
-dashboards (client/lawyer/arbitrator/registrar/council), security hardening, and the full
-test matrix described in `docs/` and the specification.
+See the [documentation index](README.md). Before any production launch, every
+item in the [Legal Review Checklist](LEGAL_REVIEW_CHECKLIST.md) — the *Matters
+Requiring External Legal Review* — must be cleared by qualified counsel.
+
+Remaining engineering follow-ups: full EN/AR bilingual sweep of older pages and
+notification/email templates; the end-to-end (20-step) integration test; and
+optional depth on awards/corrections (Ch20/21), fee finishing
+(receipt/credit/cost-decision) and online-hearing room tooling (Ch15).

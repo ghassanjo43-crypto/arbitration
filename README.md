@@ -18,7 +18,7 @@ arbitration/
 │  └─ web/            React + Vite + TypeScript SPA (EN/AR, full RTL)
 ├─ packages/
 │  └─ shared/         Shared domain enums, permissions, DTOs, legal text
-├─ docs/              Architecture, security, role–permission matrix, workflow
+├─ docs/              Architecture, rules engine, procedural protocols, legal-review checklist
 ├─ docker-compose.yml Postgres + Redis + API (development)
 └─ .env.example       Environment template (never commit a real .env)
 ```
@@ -156,7 +156,9 @@ npm test         -w @gaap/web      # web unit tests
 
 The e2e suite resets an isolated `e2e_test` schema, applies migrations, boots the Nest app in-process, and exercises the spec's critical flows and every confidentiality guarantee (including that a super-admin is denied tribunal deliberations and award drafting).
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full module map and roadmap.
+See the [documentation index](docs/README.md) for the full module map, the rules
+engine, deadline, electronic-service, fee and hearing protocols, data retention,
+and the architecture.
 
 ## Legal positioning
 
@@ -164,3 +166,8 @@ The interface and content consistently separate **administration** (the company)
 **decision-making** (the tribunal). The platform does not interfere with arbitrator
 independence or the merits, and does not claim awards are enforceable in every jurisdiction.
 Model clauses and agreements carry a prominent disclaimer to obtain independent legal advice.
+
+> **Before any production launch**, every item in the
+> [Legal Review Checklist](docs/LEGAL_REVIEW_CHECKLIST.md) — the *Matters
+> Requiring External Legal Review* — must be reviewed and cleared by qualified
+> arbitration counsel in each relevant jurisdiction.
