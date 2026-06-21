@@ -487,6 +487,10 @@ model Case {
   // Interim & emergency measures
   interimMeasures   InterimMeasure[]
 
+  // Expedited track & multi-party
+  expeditedTrack   ExpeditedTrack?
+  joinderRequests  PartyJoinderRequest[]
+
   @@index([stage])
 }
 
@@ -2815,4 +2819,119 @@ model InterimMeasureEvent {
   createdAt DateTime         @default(now())
 
   @@index([measureId])
+}
+
+// ============================================================================
+// EXPEDITED PROCEDURE (Chapter 23)
+//
+// An OPTIONAL track. It is never applied automatically: it requires party
+// agreement or another legally valid basis, and an explicit authorised
+// activation.
+// ============================================================================
+
+enum ExpeditedBasis {
+  PARTY_AGREEMENT
+  RULES_THRESHOLD // claim value below an agreed threshold, where the rules permit
+  OTHER_LEGAL_BASIS
+}
+
+enum ExpeditedStatus {
+  PROPOSED
+  AGREED
+  ACTIVE
+  DECLINED
+  TERMINATED
+}
+
+model ExpeditedTrack {
+  id                    String          @id @default(uuid())
+  caseId                String          @unique
+  case                  Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  basis                 ExpeditedBasis
+  status                ExpeditedStatus @default(PROPOSED)
+  soleArbitrator        Boolean         @default(true)
+  documentsOnly         Boolean         @default(false)
+  pageLimit             Int?
+  awardTargetDays       Int?
+  deadlineScalePercent  Int             @default(50) // shorter deadlines (% of standard)
+  simplifiedFeeSchedule Boolean         @default(true)
+  proposedById          String
+  activatedById         String?
+  activatedAt           DateTime?
+  terminatedReason      String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  consents ExpeditedConsent[]
+}
+
+model ExpeditedConsent {
+  id        String         @id @default(uuid())
+  trackId   String
+  track     ExpeditedTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  userId    String
+  partyId   String?
+  consented Boolean
+  note      String?
+  createdAt DateTime       @default(now())
+
+  @@unique([trackId, userId])
+}
+
+// ============================================================================
+// MULTI-PARTY & MULTI-CONTRACT (Chapter 24) — consolidation & joinder
+//
+// The tribunal or the appointing authority decides; the portal records the
+// request, party comments and the decision.
+// ============================================================================
+
+enum JoinderType {
+  CONSOLIDATION
+  JOINDER
+}
+
+enum JoinderStatus {
+  REQUESTED
+  COMMENTS_OPEN
+  GRANTED
+  DENIED
+  WITHDRAWN
+}
+
+model PartyJoinderRequest {
+  id                 String        @id @default(uuid())
+  caseId             String
+  case               Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  type               JoinderType
+  requestNumber      String // e.g. J-0001 (per case)
+  subjectDescription String // the party/contract/case to join or consolidate
+  relatedCaseRef     String?
+  requestingPartyId  String?
+  requestedById      String
+  grounds            String?
+  status             JoinderStatus @default(REQUESTED)
+  decision           String?
+  decisionReason     String?
+  decidedById        String?
+  decidedAt          DateTime?
+  feeReallocationNote String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  comments JoinderComment[]
+
+  @@unique([caseId, requestNumber])
+  @@index([caseId])
+}
+
+model JoinderComment {
+  id          String              @id @default(uuid())
+  requestId   String
+  request     PartyJoinderRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorById  String
+  partyId     String?
+  comment     String
+  createdAt   DateTime            @default(now())
+
+  @@index([requestId])
 }

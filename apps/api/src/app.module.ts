@@ -29,6 +29,7 @@ import { FilingsModule } from './filings/filings.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { DefaultsModule } from './defaults/defaults.module';
 import { InterimModule } from './interim/interim.module';
+import { CaseTracksModule } from './casetracks/casetracks.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -73,6 +74,7 @@ import { HealthController } from './health/health.controller';
     EvidenceModule,
     DefaultsModule,
     InterimModule,
+    CaseTracksModule,
   ],
   controllers: [HealthController],
   providers: [
