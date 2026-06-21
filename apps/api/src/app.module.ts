@@ -25,6 +25,7 @@ import { UsersModule } from './users/users.module';
 import { FeesModule } from './fees/fees.module';
 import { RulesModule } from './rules/rules.module';
 import { ServiceModule } from './service/service.module';
+import { FilingsModule } from './filings/filings.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -65,6 +66,7 @@ import { HealthController } from './health/health.controller';
     FeesModule,
     RulesModule,
     ServiceModule,
+    FilingsModule,
   ],
   controllers: [HealthController],
   providers: [

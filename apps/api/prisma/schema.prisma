@@ -472,6 +472,10 @@ model Case {
   ruleExceptions CaseRuleException[]
   ruleAuditLogs  RuleAuditLog[]
 
+  // Filings & document production
+  filings           Filing[]
+  productionRequests ProductionRequest[]
+
   @@index([stage])
 }
 
@@ -753,6 +757,9 @@ model Document {
   versions DocumentVersion[]
   accesses DocumentAccess[]
   activity DocumentActivity[]
+
+  filingLinks     FilingDocument[]
+  productionLinks ProductionDocument[]
 
   @@unique([caseId, caseDocumentNumber])
   @@index([caseId])
@@ -2277,4 +2284,177 @@ model RuleAuditLog {
 
   @@index([caseId])
   @@index([ruleId])
+}
+
+// ============================================================================
+// FILINGS / PLEADINGS (Chapter 10)
+// A filing is a procedural submission (Statement of Claim, Defence, ...). Filed
+// documents are never silently replaced: a correction creates a NEW version
+// that supersedes the prior one, with full reason/approval provenance.
+// ============================================================================
+
+enum FilingType {
+  STATEMENT_OF_CLAIM
+  STATEMENT_OF_DEFENCE
+  COUNTERCLAIM
+  DEFENCE_TO_COUNTERCLAIM
+  REPLY
+  REJOINDER
+  AMENDMENT
+  JURISDICTIONAL_SUBMISSION
+  PROCEDURAL_APPLICATION
+  POST_HEARING_SUBMISSION
+}
+
+enum FilingStatus {
+  DRAFT
+  SUBMITTED
+  RECEIVED
+  ACCEPTED
+  REJECTED
+  SUPERSEDED // replaced by a later corrected version
+  CORRECTED // this version was corrected (a superseding version exists)
+}
+
+enum FilingFeeStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  WAIVED
+}
+
+enum CorrectionApproval {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Filing {
+  id                   String               @id @default(uuid())
+  caseId               String
+  case                 Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  filingNumber         String // e.g. F-0001 (per case)
+  type                 FilingType
+  title                String
+  partyId              String?
+  representativeUserId String?
+  submittedById        String
+  submittedAt          DateTime?
+  officialTimezone     String               @default("UTC")
+  version              Int                  @default(1)
+  contentHash          String? // hash sealing the filed content/bundle
+  confidentiality      ConfidentialityLevel @default(CASE_PARTIES)
+  feeStatus            FilingFeeStatus      @default(NOT_REQUIRED)
+  status               FilingStatus         @default(SUBMITTED)
+  // Version chain: a correction creates a new Filing that supersedes the prior.
+  supersedesId         String?              @unique
+  supersedes           Filing?              @relation("FilingVersions", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy         Filing?              @relation("FilingVersions")
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  documents   FilingDocument[]
+  receipt     FilingReceipt?
+  corrections FilingCorrection[]
+
+  @@unique([caseId, filingNumber])
+  @@index([caseId])
+  @@index([status])
+}
+
+model FilingDocument {
+  id         String   @id @default(uuid())
+  filingId   String
+  filing     Filing   @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([filingId, documentId])
+}
+
+// Immutable filing receipt: a sealed acknowledgement of a completed filing.
+model FilingReceipt {
+  id            String   @id @default(uuid())
+  filingId      String   @unique
+  filing        Filing   @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  receiptNumber String   @unique
+  payload       String // JSON snapshot
+  payloadHash   String
+  generatedAt   DateTime @default(now())
+}
+
+// A correction request on a filed document — creates a new version, never edits.
+model FilingCorrection {
+  id              String             @id @default(uuid())
+  filingId        String
+  filing          Filing             @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  reason          String
+  requestedById   String
+  approval        CorrectionApproval @default(PENDING)
+  approvedById    String?
+  previousVersion Int
+  newVersion      Int
+  newFilingId     String? // the superseding Filing created on approval
+  createdAt       DateTime           @default(now())
+
+  @@index([filingId])
+}
+
+// ============================================================================
+// DOCUMENT PRODUCTION (Chapter 12) — Redfern-style request schedule.
+// The portal records the schedule; only the tribunal decides production.
+// ============================================================================
+
+enum ProductionStatus {
+  REQUESTED
+  OBJECTED
+  REPLIED
+  GRANTED
+  GRANTED_IN_PART
+  DENIED
+  PRODUCED
+  NON_COMPLIANCE
+}
+
+model ProductionRequest {
+  id                   String           @id @default(uuid())
+  caseId               String
+  case                 Case             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  requestNumber        String // e.g. R-0001 (per case)
+  requestingPartyId    String?
+  requestedById        String
+  category             String // requested category/description of documents
+  relevance            String?
+  materiality          String?
+  objection            String?
+  objectedById         String?
+  reply                String?
+  tribunalDecision     String?
+  decisionReason       String?
+  decidedById          String?
+  privilegeClaim       String?
+  confidentialityOrder String?
+  status               ProductionStatus @default(REQUESTED)
+  dueAt                DateTime?
+  producedAt           DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  documents ProductionDocument[]
+
+  @@unique([caseId, requestNumber])
+  @@index([caseId])
+  @@index([status])
+}
+
+model ProductionDocument {
+  id         String            @id @default(uuid())
+  requestId  String
+  request    ProductionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime          @default(now())
+
+  @@unique([requestId, documentId])
 }
