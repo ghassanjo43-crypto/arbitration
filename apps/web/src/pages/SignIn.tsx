@@ -24,6 +24,7 @@ export function SignIn() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
@@ -68,7 +69,25 @@ export function SignIn() {
           </div>
           <div className="field">
             <label htmlFor="password">Password</label>
-            <input id="password" type="password" className="input" autoComplete="current-password" {...register('password')} aria-invalid={!!errors.password} />
+            <div className="input-reveal">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                className="input"
+                autoComplete="current-password"
+                {...register('password')}
+                aria-invalid={!!errors.password}
+              />
+              <button
+                type="button"
+                className="input-reveal__btn"
+                onClick={() => setShowPassword((s) => !s)}
+                aria-pressed={showPassword}
+                aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+              >
+                {showPassword ? t('auth.hide') : t('auth.show')}
+              </button>
+            </div>
             {errors.password && <p className="field__error">{errors.password.message}</p>}
           </div>
           <div className="field">

@@ -154,6 +154,12 @@
     "fileCase": "File a new case",
     "signOut": "Sign out"
   },
+  "auth": {
+    "show": "Show",
+    "hide": "Hide",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
+  },
   "notifications": {
     "title": "Notifications",
     "empty": "No notifications.",

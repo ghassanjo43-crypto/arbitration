@@ -154,6 +154,12 @@
     "fileCase": "تقديم قضية جديدة",
     "signOut": "تسجيل الخروج"
   },
+  "auth": {
+    "show": "إظهار",
+    "hide": "إخفاء",
+    "showPassword": "إظهار كلمة المرور",
+    "hidePassword": "إخفاء كلمة المرور"
+  },
   "notifications": {
     "title": "الإشعارات",
     "empty": "لا توجد إشعارات.",

@@ -82,6 +82,16 @@
 .badge--warning { background: rgba(154, 107, 47, 0.12); color: var(--c-warning); }
 .badge--danger { background: rgba(160, 43, 43, 0.12); color: var(--c-danger, #a02b2b); }
 
+/* Password reveal toggle */
+.input-reveal { position: relative; }
+.input-reveal .input { padding-inline-end: 4rem; }
+.input-reveal__btn {
+  position: absolute; inset-inline-end: 8px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; padding: 4px 6px;
+  font-size: 0.8rem; color: var(--accent, #b8860b);
+}
+.input-reveal__btn:hover { text-decoration: underline; }
+
 /* Notification bell */
 .notif { position: relative; }
 .notif__btn { position: relative; background: none; border: none; cursor: pointer; font-size: 1.2rem; line-height: 1; padding: 6px; }
