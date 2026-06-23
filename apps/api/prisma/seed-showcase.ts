@@ -14,7 +14,7 @@ import {
   TribunalMemberStatus, AppointmentStatus, AppointmentMethod, ChallengeStatus,
   ConfidentialityLevel, MessageCategory, HearingStatus, HearingRoomKind, InvoiceStatus,
   PaymentStatus, AwardType, DeadlineStatus, ScreeningSubjectType, ScreeningType,
-  ScreeningStatus, ComplianceHoldStatus, RuleReviewStatus,
+  ScreeningStatus, ComplianceHoldStatus, RuleReviewStatus, ChapterReviewStatus, VersionReviewState,
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -250,12 +250,10 @@ export async function seedShowcase(refs: ShowcaseRefs) {
     data: { caseId: c.id, subjectType: ScreeningSubjectType.PARTY, subjectId: respondentParty.id, reason: 'Possible SANCTIONS match on a party — manual review required', screeningCheckId: flagged.id, status: ComplianceHoldStatus.ACTIVE, createdById: registrar.id },
   });
 
-  // ---- Rules review: seed mixed counsel-review decisions on the DRAFT v3 ----
+  // ---- Rules review: seed mixed per-rule decisions on the DRAFT v3 (legacy detail) ----
   const draftRules = await prisma.rule.findMany({ where: { versionId: v3Id }, orderBy: { sortOrder: 'asc' } });
   for (let i = 0; i < draftRules.length; i++) {
     const r = draftRules[i];
-    // Most cleared OK; one CHANGE_REQUIRED, one BLOCKER, the rest PENDING — so the
-    // Activate gate is visibly blocked until counsel finishes.
     const status = i === 0 ? RuleReviewStatus.CHANGE_REQUIRED : i === 1 ? RuleReviewStatus.BLOCKER : i < 5 ? RuleReviewStatus.OK : RuleReviewStatus.PENDING;
     await prisma.ruleReviewItem.create({
       data: {
@@ -269,6 +267,30 @@ export async function seedShowcase(refs: ShowcaseRefs) {
       },
     });
   }
+
+  // ---- Chapter-by-chapter counsel review on DRAFT v3 (mixed states), with a
+  // comment log — so the Rules-review workspace shows the sign-off gate blocked. ----
+  const draftChapters = await prisma.ruleChapter.findMany({ where: { versionId: v3Id }, orderBy: { sortOrder: 'asc' } });
+  const chapterPlan: { status: ChapterReviewStatus; comment?: string }[] = [
+    { status: ChapterReviewStatus.APPROVED, comment: 'General provisions cleared for the seat.' },
+    { status: ChapterReviewStatus.NO_ISSUE },
+    { status: ChapterReviewStatus.CHANGE_REQUESTED, comment: 'Tighten the commencement wording to match the seat\'s mandatory law.' },
+    { status: ChapterReviewStatus.BLOCKER, comment: 'Electronic-service sufficiency must be confirmed for this seat before activation.' },
+    { status: ChapterReviewStatus.COMMENT, comment: 'Consider clarifying the response-period start; non-blocking.' },
+  ];
+  for (let i = 0; i < draftChapters.length; i++) {
+    const ch = draftChapters[i];
+    const plan = chapterPlan[i % chapterPlan.length];
+    await prisma.ruleChapterReview.create({
+      data: { versionId: v3Id, chapterId: ch.id, status: plan.status, jurisdiction: 'England & Wales', reviewedById: council.id, reviewedAt: new Date() },
+    });
+    if (plan.comment) {
+      await prisma.ruleReviewComment.create({ data: { versionId: v3Id, chapterId: ch.id, authorId: council.id, body: plan.comment, status: plan.status } });
+    }
+  }
+  // A version-wide comment + the derived BLOCKED review state.
+  await prisma.ruleReviewComment.create({ data: { versionId: v3Id, authorId: council.id, body: 'Overall: not ready for activation — one blocker and one change request outstanding.' } });
+  await prisma.ruleSetVersion.update({ where: { id: v3Id }, data: { reviewState: VersionReviewState.BLOCKED } });
 
   return { caseId: c.id, reference: c.reference };
 }

@@ -26,42 +26,63 @@ unchanged and unaffected.
 ## Lifecycle
 
 ```
-ACTIVE v1 ──clone──▶ DRAFT v2 ──edit rules──▶ counsel review (per rule)
-                                                   │
-                          PENDING / CHANGE_REQUIRED / BLOCKER  ──▶ (blocked)
-                                                   │ all OK
-                                                   ▼
-                                        activate ──▶ ACTIVE v2  (v1 → SUPERSEDED)
+ACTIVE v1 ──clone──▶ DRAFT v2 ──edit──▶ chapter-by-chapter review
+                                              │
+              BLOCKER / CHANGE_REQUESTED  ──▶ (blocked: no sign-off)
+                                              │ every chapter cleared
+                                              ▼
+                                    sign-off ──▶ reviewState APPROVED
+                                              │
+                                    activate ──▶ ACTIVE v2  (v1 → SUPERSEDED)
+
+   (abandoned drafts / superseded versions ──▶ archive ──▶ ARCHIVED, history kept)
 ```
 
 1. **Clone to draft** — `POST /rules/admin/versions` deep-clones a version's
-   chapters, rules and deadline definitions into a new `DRAFT`. Every cloned rule
-   gets a `PENDING` review item. Live cases are untouched: each case stays pinned
-   to its own `RuleSetVersion`.
+   chapters, rules and deadline definitions into a new `DRAFT`. Live cases are
+   untouched: each case stays pinned to its own `RuleSetVersion`.
 2. **Edit (draft only)** — `PATCH /rules/admin/rules/:ruleId` edits a rule's text
    (`title`/`text` EN+AR, `mandatoryLawWarning`, `publicVisible`). Editing an
-   `ACTIVE` version is refused (active versions are immutable). **Any edit
-   re-opens that rule's review** (back to `PENDING`) so a late change cannot
-   bypass review.
+   `ACTIVE` version is refused (active versions are immutable).
 3. **Diff** — `GET /rules/admin/diff?base=<id>&target=<id>` returns a per-rule
    diff matched by rule number: `ADDED` / `REMOVED` / `CHANGED` (with the list of
    changed fields and both texts) / `UNCHANGED`, plus a summary count.
-4. **Review** — `POST /rules/admin/versions/:versionId/rules/:ruleId/review`
-   records counsel's decision per rule: `OK` / `CHANGE_REQUIRED` / `BLOCKER`
-   (or back to `PENDING`), with an optional `jurisdiction` and `note`. Decisions
-   may only be recorded against a `DRAFT`.
-5. **Activate (gated)** — `POST /rules/admin/versions/:id/activate` refuses
-   unless **every** rule is reviewed `OK` (no `PENDING`/`CHANGE_REQUIRED`/
-   `BLOCKER`). On success the version becomes `ACTIVE` with an effective date and
-   the prior `ACTIVE` version of the same rule set is `SUPERSEDED`.
+4. **Chapter review** — `POST /rules/admin/versions/:versionId/chapters/:chapterId/review`
+   records counsel's decision **per chapter**: `NO_ISSUE` / `COMMENT` /
+   `CHANGE_REQUESTED` / `BLOCKER` / `APPROVED`, with an optional `jurisdiction`
+   and `comment`. Each decision recomputes the version's `reviewState`
+   (`UNDER_REVIEW` / `CHANGES_REQUESTED` / `BLOCKED`); introducing a blocker or
+   change after sign-off automatically **revokes** the sign-off. (A finer per-rule
+   review endpoint also exists for detail.)
+5. **Comments** — `POST /rules/admin/versions/:versionId/comments` appends an
+   immutable reviewer comment (chapter-scoped or version-wide) with author and
+   timestamp preserved.
+6. **Sign-off (gated)** — `POST /rules/admin/versions/:id/sign-off` requires every
+   chapter to be reviewed with **no `BLOCKER` and no `CHANGE_REQUESTED`**. It
+   records who signed off and when and sets `reviewState = APPROVED`.
+7. **Activate (gated)** — `POST /rules/admin/versions/:id/activate` requires the
+   version to be **signed off** (`reviewState = APPROVED`) and re-validates the
+   chapter gate. On success the version becomes `ACTIVE` and the prior `ACTIVE`
+   version is `SUPERSEDED`.
+8. **Archive** — `POST /rules/admin/versions/:id/archive` sets `ARCHIVED`
+   (abandoned drafts / superseded versions kept for history). The active version
+   cannot be archived. **History is preserved** — content is never overwritten.
 
-## What gates activation
+## Version states
 
-`summarise(versionId)` reports `{ ruleCount, OK, CHANGE_REQUIRED, BLOCKER,
-PENDING, clearToActivate }`. `clearToActivate` is true **only** when
-`OK === ruleCount` (rules without a review item count as `PENDING`). The frontend
-disables the **Activate** button until then; the API enforces the same gate
-server-side.
+- **Lifecycle** (`status`): `DRAFT` → `ACTIVE` → `SUPERSEDED`; plus `WITHDRAWN`
+  and `ARCHIVED`.
+- **Review state** (`reviewState`, derived from chapter reviews + sign-off):
+  `NOT_STARTED` → `UNDER_REVIEW` → `CHANGES_REQUESTED` / `BLOCKED` → `APPROVED`
+  (only on sign-off).
+
+## What gates sign-off & activation
+
+`chapterSummary(versionId)` reports per-status chapter counts plus
+`clearForSignOff` (every chapter reviewed, no `BLOCKER`, no `CHANGE_REQUESTED`)
+and `activatable` (DRAFT + `reviewState APPROVED` + signed off). The frontend
+disables **Sign off** until `clearForSignOff`, and **Activate** until
+`activatable`; the API enforces both gates server-side.
 
 ## Engine graph after activation
 
@@ -71,15 +92,24 @@ derived idempotently by `backfillEngineGraph()` and runs on every deploy via
 `npm run db:seed:topup` (see [RULES_ENGINE.md](RULES_ENGINE.md)). Run that
 top-up after activating a new version so the engine acts on the new rules.
 
+## Audit events
+
+`RULE_VERSION_DRAFTED`, `RULE_TEXT_EDITED`, `RULE_CHAPTER_REVIEWED`,
+`RULE_REVIEW_COMMENT_ADDED`, `RULE_VERSION_SIGNED_OFF`, `RULE_VERSION_ACTIVATED`,
+`RULE_VERSION_ARCHIVED` (+ the finer `RULE_REVIEW_RECORDED` per rule).
+
 ## UI
 
 A council user reaches the workflow from the dashboard (**Rules review**) →
-`/app/admin/rules`: a versions table with each version's review summary and a
-gated **Activate** action, a per-version review surface with a status selector
-per rule, and a **Compare against** picker that flags added/changed rules inline.
+`/app/admin/rules`: a versions table showing each version's **lifecycle** and
+**review state** with gated **Sign off** / **Activate** / **Archive** actions; a
+per-version surface with a **chapter-by-chapter** decision selector, the comment
+log, and a **Compare against** diff picker. A prominent banner states this is a
+counsel-review workflow, **not** a substitute for qualified legal advice.
 
 ## Source
 
 `apps/api/src/rules/rule-review.service.ts` (+ `RuleReviewController` in
-`rules.controller.ts`), schema models `RuleReviewItem` / `RuleReviewStatus`.
+`rules.controller.ts`), schema models `RuleChapterReview` / `RuleReviewComment` /
+`RuleReviewItem` and enums `ChapterReviewStatus` / `VersionReviewState`.
 Tests: `rule-review.service.spec.ts`, `AdminRulesReview.test.tsx`.

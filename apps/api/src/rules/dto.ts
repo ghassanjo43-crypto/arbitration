@@ -8,7 +8,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { RuleReviewStatus } from '@prisma/client';
+import { ChapterReviewStatus, RuleReviewStatus } from '@prisma/client';
 
 /** Pin a case to a specific rule set version (registrar action). */
 export class AssignRuleSetDto {
@@ -95,4 +95,18 @@ export class RecordReviewDto {
   @IsEnum(RuleReviewStatus) status!: RuleReviewStatus; // OK | CHANGE_REQUIRED | BLOCKER | PENDING
   @IsOptional() @IsString() jurisdiction?: string;
   @IsOptional() @IsString() note?: string;
+}
+
+/** Record counsel's review decision for one CHAPTER in a draft version. */
+export class RecordChapterReviewDto {
+  // NO_ISSUE | COMMENT | CHANGE_REQUESTED | BLOCKER | APPROVED
+  @IsEnum(ChapterReviewStatus) status!: ChapterReviewStatus;
+  @IsOptional() @IsString() jurisdiction?: string;
+  @IsOptional() @IsString() comment?: string;
+}
+
+/** Append a reviewer comment (on a chapter, or the version as a whole). */
+export class AddReviewCommentDto {
+  @IsOptional() @IsString() chapterId?: string;
+  @IsString() body!: string;
 }

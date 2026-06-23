@@ -10,8 +10,8 @@ import { RequirePermissions } from '../authz/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
 import {
-  AcceptRulesDto, AssignRuleSetDto, CreateDraftVersionDto, RecordEventDto, RecordExceptionDto,
-  RecordOverrideDto, RecordReviewDto, UpdateRuleTextDto,
+  AcceptRulesDto, AddReviewCommentDto, AssignRuleSetDto, CreateDraftVersionDto, RecordChapterReviewDto,
+  RecordEventDto, RecordExceptionDto, RecordOverrideDto, RecordReviewDto, UpdateRuleTextDto,
 } from './dto';
 
 @ApiTags('rules')
@@ -136,8 +136,31 @@ export class RuleReviewController {
     return this.review.recordReview(user, versionId, ruleId, dto);
   }
 
+  /** Record counsel's review decision for a chapter (no-issue/comment/change/blocker/approved). */
+  @Post('versions/:versionId/chapters/:chapterId/review')
+  recordChapterReview(@CurrentUser() user: AuthUser, @Param('versionId') versionId: string, @Param('chapterId') chapterId: string, @Body() dto: RecordChapterReviewDto) {
+    return this.review.recordChapterReview(user, versionId, chapterId, dto);
+  }
+
+  /** Append a reviewer comment (chapter-scoped or version-wide). */
+  @Post('versions/:versionId/comments')
+  addComment(@CurrentUser() user: AuthUser, @Param('versionId') versionId: string, @Body() dto: AddReviewCommentDto) {
+    return this.review.addComment(user, versionId, dto);
+  }
+
+  /** Final counsel sign-off (gated: no unresolved blocker/required change). */
+  @Post('versions/:id/sign-off')
+  signOff(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.review.signOff(user, id);
+  }
+
   @Post('versions/:id/activate')
   activate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.review.activateVersion(user, id);
+  }
+
+  @Post('versions/:id/archive')
+  archive(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.review.archiveVersion(user, id);
   }
 }

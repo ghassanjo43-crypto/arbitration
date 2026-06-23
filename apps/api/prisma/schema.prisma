@@ -1087,6 +1087,26 @@ enum RuleVersionStatus {
   ACTIVE
   SUPERSEDED
   WITHDRAWN
+  ARCHIVED
+}
+
+// Version-level counsel-review lifecycle (derived from chapter reviews + sign-off).
+enum VersionReviewState {
+  NOT_STARTED
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  BLOCKED
+  APPROVED
+}
+
+// Per-chapter counsel-review outcome. The platform records counsel's decision;
+// it does not perform the legal review.
+enum ChapterReviewStatus {
+  NO_ISSUE
+  COMMENT
+  CHANGE_REQUESTED
+  BLOCKER
+  APPROVED
 }
 
 enum RuleStatus {
@@ -1113,8 +1133,12 @@ model RuleSetVersion {
   ruleSet              RuleSet           @relation(fields: [ruleSetId], references: [id], onDelete: Cascade)
   version              String // semantic-ish label, e.g. "1.0", "2.0"
   status               RuleVersionStatus @default(DRAFT)
+  reviewState          VersionReviewState @default(NOT_STARTED)
+  signedOffById        String? // counsel/council member who gave final sign-off
+  signedOffAt          DateTime?
   effectiveDate        DateTime?
   supersededAt         DateTime?
+  archivedAt           DateTime?
   changeSummary        String?
   changeSummaryAr      String?
   // Every generated rule version must carry the mandatory-law / counsel-review notice.
@@ -1124,11 +1148,13 @@ model RuleSetVersion {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
 
-  chapters    RuleChapter[]
-  rules       Rule[]
-  caseLinks   CaseRuleSet[]
-  acceptances CaseRuleAcceptance[]
-  reviewItems RuleReviewItem[]
+  chapters       RuleChapter[]
+  rules          Rule[]
+  caseLinks      CaseRuleSet[]
+  acceptances    CaseRuleAcceptance[]
+  reviewItems    RuleReviewItem[]
+  chapterReviews RuleChapterReview[]
+  reviewComments RuleReviewComment[]
 
   @@unique([ruleSetId, version])
   @@index([status])
@@ -1163,6 +1189,39 @@ model RuleReviewItem {
   @@index([versionId])
 }
 
+// The CURRENT counsel-review status of one chapter in a draft version. A draft
+// cannot be activated while any chapter is BLOCKER or CHANGE_REQUESTED.
+model RuleChapterReview {
+  id           String              @id @default(uuid())
+  versionId    String
+  version      RuleSetVersion      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  chapterId    String
+  chapter      RuleChapter         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  status       ChapterReviewStatus @default(NO_ISSUE)
+  jurisdiction String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([versionId, chapterId])
+  @@index([versionId])
+}
+
+// Append-only review comment log (timestamp + reviewer identity preserved).
+model RuleReviewComment {
+  id        String               @id @default(uuid())
+  versionId String
+  version   RuleSetVersion       @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  chapterId String? // null = a comment on the version as a whole
+  authorId  String
+  body      String
+  status    ChapterReviewStatus? // the decision recorded alongside the comment, if any
+  createdAt DateTime             @default(now())
+
+  @@index([versionId])
+}
+
 model RuleChapter {
   id        String         @id @default(uuid())
   versionId String
@@ -1174,7 +1233,8 @@ model RuleChapter {
   summaryAr String?
   sortOrder Int            @default(0)
 
-  rules Rule[]
+  rules   Rule[]
+  reviews RuleChapterReview[]
 
   @@unique([versionId, number])
   @@index([versionId])
