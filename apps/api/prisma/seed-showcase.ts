@@ -15,7 +15,7 @@ import {
   ConfidentialityLevel, MessageCategory, HearingStatus, HearingRoomKind, InvoiceStatus,
   PaymentStatus, AwardType, DeadlineStatus, ScreeningSubjectType, ScreeningType,
   ScreeningStatus, ComplianceHoldStatus, RuleReviewStatus, ChapterReviewStatus, VersionReviewState,
-  EmailDeliveryStatus,
+  EmailDeliveryStatus, LegalHoldStatus, RetentionStatus,
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -278,6 +278,13 @@ export async function seedShowcase(refs: ShowcaseRefs) {
   await prisma.complianceHold.create({
     data: { caseId: c.id, subjectType: ScreeningSubjectType.PARTY, subjectId: respondentParty.id, reason: 'Possible SANCTIONS match on a party — manual review required', screeningCheckId: flagged.id, status: ComplianceHoldStatus.ACTIVE, createdById: registrar.id },
   });
+
+  // ---- Retention: an active LEGAL HOLD on the case (so /app/admin/retention shows
+  // it, and a retention sweep would skip it). Marks the case retentionStatus too. ----
+  await prisma.legalHold.create({
+    data: { caseId: c.id, reason: 'Enforcement proceedings pending in a national court — preserve the full case file.', status: LegalHoldStatus.ACTIVE, placedById: registrar.id },
+  });
+  await prisma.case.update({ where: { id: c.id }, data: { legalHold: true, retentionStatus: RetentionStatus.LEGAL_HOLD } });
 
   // ---- Rules review: seed mixed per-rule decisions on the DRAFT v3 (legacy detail) ----
   const draftRules = await prisma.rule.findMany({ where: { versionId: v3Id }, orderBy: { sortOrder: 'asc' } });
