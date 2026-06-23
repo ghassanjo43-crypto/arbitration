@@ -94,9 +94,21 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   certificate PDFs render automatically on certificate generation. No extra config is required;
   durability follows `STORAGE_DRIVER`. E-signature/wet-ink formalities and Arabic (RTL) award
   rendering remain follow-ups (see the readiness assessment).
-- **Email/payments** run on `resend`/`manual`. Wire real providers via the documented env vars
-  before going live (payments intentionally remain manual pending the escrow/client-funds and
-  AML/KYC accounting decisions — see the readiness assessment).
+- **Email deliverability & service evidence**: set `EMAIL_DRIVER=resend` + `RESEND_API_KEY`, and
+  `EMAIL_FROM` to a sender on a **verified domain** (configure SPF/DKIM/DMARC). Every outbound
+  email (notifications **and** formal service notices) is tracked as an `EmailDelivery` with the
+  provider message id and a status trail (queued → sent → delivered/bounced/complained/opened/
+  clicked). Point the provider's delivery webhook at `POST /api/webhooks/email`; it is
+  signature-verified (HMAC-SHA256 of the raw body with `EMAIL_WEBHOOK_SECRET` in the
+  `X-Webhook-Signature` header) — unsigned requests are rejected `401`. **Dispatch is never
+  receipt**: a provider `delivered` event updates the delivery record only and never marks a
+  notice received; a `bounced`/`complained` event fails the notice and routes it to manual
+  (substitute) service. Transient failures are retried with backoff (`POST
+  /api/admin/email-deliveries/retry-sweep`, or schedule it); permanent failures are never silently
+  retried. Delivery evidence is visible per case in the workspace **Delivery** tab
+  (`GET /api/cases/:id/email-deliveries`, registry/tribunal only).
+- **Payments** run on `manual`. Payments intentionally remain manual pending the escrow/
+  client-funds and AML/KYC accounting decisions — see the readiness assessment.
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real
   tenant.
 - **Free instances sleep**; the first request after idle cold-starts (slow) — not a fault.

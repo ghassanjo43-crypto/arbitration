@@ -932,6 +932,75 @@ model Notification {
 }
 
 // ============================================================================
+// EMAIL DELIVERABILITY — provider-agnostic delivery-status tracking and the
+// evidence trail for every outbound email (notifications AND formal service
+// notices). Dispatch is NEVER treated as receipt: a provider "delivered" event
+// records delivery to the mail server, not that the recipient read it.
+// ============================================================================
+
+enum EmailDeliveryStatus {
+  QUEUED
+  SENT // accepted by the provider for delivery (dispatch, not receipt)
+  DELIVERED // provider confirmed delivery to the mail server (still not receipt)
+  BOUNCED
+  COMPLAINED
+  FAILED
+  OPENED
+  CLICKED
+}
+
+enum EmailFailureKind {
+  TEMPORARY // transient (5xx / network / rate-limit) — eligible for retry
+  PERMANENT // hard bounce / invalid recipient — never silently retried
+}
+
+model EmailDelivery {
+  id                String              @id @default(uuid())
+  provider          String              @default("console")
+  providerMessageId String? // links provider webhook events back to this record
+  toEmail           String
+  subject           String
+  status            EmailDeliveryStatus @default(QUEUED)
+  failureKind       EmailFailureKind?
+  errorDetail       String?
+  attemptCount      Int                 @default(0)
+  maxAttempts       Int                 @default(4)
+  nextAttemptAt     DateTime?
+  // Soft links to the platform records this email evidences (no FK: a single
+  // delivery may relate to a notification or a formal-service notice recipient).
+  notificationId   String?
+  noticeId         String?
+  noticeRecipientId String?
+  caseId           String?
+  noticeType       String?
+  templateKey      String?
+  sentAt           DateTime?
+  lastEventAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  events EmailDeliveryEvent[]
+
+  @@index([providerMessageId])
+  @@index([status])
+  @@index([caseId])
+  @@index([noticeId])
+}
+
+// Append-only log of provider delivery events for one email (evidence trail).
+model EmailDeliveryEvent {
+  id              String        @id @default(uuid())
+  deliveryId      String
+  delivery        EmailDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  type            String // queued | sent | delivered | bounced | complained | failed | opened | clicked | retry
+  providerEventId String?
+  detail          String?
+  occurredAt      DateTime      @default(now())
+
+  @@index([deliveryId])
+}
+
+// ============================================================================
 // PROCEDURAL: ORDERS, DEADLINES, HEARINGS
 // ============================================================================
 

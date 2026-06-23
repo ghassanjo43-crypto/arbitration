@@ -15,6 +15,7 @@ import {
   ConfidentialityLevel, MessageCategory, HearingStatus, HearingRoomKind, InvoiceStatus,
   PaymentStatus, AwardType, DeadlineStatus, ScreeningSubjectType, ScreeningType,
   ScreeningStatus, ComplianceHoldStatus, RuleReviewStatus, ChapterReviewStatus, VersionReviewState,
+  EmailDeliveryStatus,
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -211,6 +212,34 @@ export async function seedShowcase(refs: ShowcaseRefs) {
     data: {
       caseId: c.id, title: 'Costs hearing', scheduledStart: new Date(Date.now() + 14 * 86400000), timezone: 'Europe/London',
       status: HearingStatus.SCHEDULED, provider: 'placeholder', agenda: 'Submissions on costs.', rooms: mkRooms('Costs hearing'),
+    },
+  });
+
+  // ---- Email deliverability evidence (Delivery tab): one delivered, one bounced
+  // → manual fallback. Dispatch≠receipt: the delivered one is not a "receipt". ----
+  await prisma.emailDelivery.create({
+    data: {
+      provider: 'resend', providerMessageId: `resend_${randomUUID()}`, toEmail: 'legal@meridian-infra.example',
+      subject: '[Service] Notice of Arbitration', status: EmailDeliveryStatus.DELIVERED, attemptCount: 1, caseId: c.id,
+      noticeType: 'NOTICE_OF_ARBITRATION', sentAt: new Date('2026-02-03T09:00:00Z'), lastEventAt: new Date('2026-02-03T09:01:00Z'),
+      events: { create: [
+        { type: 'queued', occurredAt: new Date('2026-02-03T08:59:00Z') },
+        { type: 'sent', occurredAt: new Date('2026-02-03T09:00:00Z') },
+        { type: 'delivered', providerEventId: `evt_${randomUUID().slice(0, 8)}`, occurredAt: new Date('2026-02-03T09:01:00Z') },
+      ] },
+    },
+  });
+  await prisma.emailDelivery.create({
+    data: {
+      provider: 'resend', providerMessageId: `resend_${randomUUID()}`, toEmail: 'disputes@gulfconstruction.example',
+      subject: '[Service] Notice of Arbitration', status: EmailDeliveryStatus.BOUNCED, failureKind: 'PERMANENT' as never,
+      errorDetail: 'mailbox unavailable (hard bounce)', attemptCount: 1, caseId: c.id, noticeType: 'NOTICE_OF_ARBITRATION',
+      sentAt: new Date('2026-02-03T09:00:00Z'), lastEventAt: new Date('2026-02-03T09:05:00Z'),
+      events: { create: [
+        { type: 'queued', occurredAt: new Date('2026-02-03T08:59:00Z') },
+        { type: 'sent', occurredAt: new Date('2026-02-03T09:00:00Z') },
+        { type: 'bounced', providerEventId: `evt_${randomUUID().slice(0, 8)}`, detail: 'hard bounce → manual service required', occurredAt: new Date('2026-02-03T09:05:00Z') },
+      ] },
     },
   });
 

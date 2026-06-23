@@ -1,5 +1,5 @@
 import { ServiceService } from './service.service';
-import { DeliveryOutcome, NoticeStatus, NoticeType } from '@prisma/client';
+import { DeliveryOutcome, EmailDeliveryStatus, NoticeStatus, NoticeType } from '@prisma/client';
 import { AuthUser } from '../auth/types';
 import { Permission } from '@gaap/shared';
 
@@ -61,16 +61,16 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({ isRegistrar: true, isTribunal: false }) };
-    const email = {
-      send: emailWorks
-        ? jest.fn().mockResolvedValue(undefined)
-        : jest.fn().mockRejectedValue(new Error('bounce')),
+    const delivery = {
+      sendTracked: emailWorks
+        ? jest.fn().mockResolvedValue({ status: EmailDeliveryStatus.SENT, providerMessageId: 'msg_123' })
+        : jest.fn().mockResolvedValue({ status: EmailDeliveryStatus.FAILED, errorDetail: 'bounce', nextAttemptAt: null }),
     };
     const notifications = { dispatch: jest.fn().mockResolvedValue(undefined) };
     const storage = { put: jest.fn().mockResolvedValue({ storageKey: 'k', fileHash: 'h', fileSize: 1 }), get: jest.fn() };
     const pdf = { renderServiceCertificate: jest.fn().mockResolvedValue(Buffer.from('pdf')) };
-    const service = new ServiceService(prisma as never, audit as never, access as never, email as never, notifications as never, storage as never, pdf as never);
-    return { service, attempts, recipientUpdates, failures, documents, email };
+    const service = new ServiceService(prisma as never, audit as never, access as never, delivery as never, notifications as never, storage as never, pdf as never);
+    return { service, attempts, recipientUpdates, failures, documents, delivery };
   }
 
   const dto = {
@@ -81,12 +81,19 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
   };
 
   it('records EMAIL_SENT (not DELIVERED/ACCESSED) when dispatch succeeds', async () => {
-    const { service, attempts, recipientUpdates, email } = makeService(true);
+    const { service, attempts, recipientUpdates, delivery } = makeService(true);
     await service.issueNotice(registrar, 'c1', dto, {});
-    expect(email.send).toHaveBeenCalledTimes(1);
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'party@example.com',
+      noticeId: 'n1',
+      noticeRecipientId: 'r1',
+      caseId: 'c1',
+      noticeType: NoticeType.NOTICE_OF_ARBITRATION,
+    }));
 
     const emailAttempt = attempts.find((a) => a.channel === 'EMAIL');
     expect(emailAttempt?.outcome).toBe(DeliveryOutcome.SENT);
+    expect(emailAttempt?.detail).toContain('msg_123');
     // Never auto-promote to ACCESSED/ACKNOWLEDGED from a send.
     const statuses = recipientUpdates.map((u) => u.status);
     expect(statuses).toContain(NoticeStatus.EMAIL_SENT);
@@ -103,11 +110,11 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
     expect(recipientUpdates.map((u) => u.status)).toContain(NoticeStatus.DELIVERY_FAILED);
   });
 
-  it('captures an explicit NoticeFailure when email dispatch fails', async () => {
-    const { service, failures } = makeService(false);
+  it('passes notice links to tracked delivery so provider failure can drive fallback evidence', async () => {
+    const { service, failures, delivery } = makeService(false);
     await service.issueNotice(registrar, 'c1', dto, {});
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({ channel: 'EMAIL', reason: 'EMAIL_DISPATCH_FAILED' });
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({ noticeId: 'n1', noticeRecipientId: 'r1' }));
+    expect(failures).toHaveLength(0);
   });
 
   it('records each served document with its content hash', async () => {
@@ -148,7 +155,7 @@ describe('ServiceService.acknowledge — sealed acknowledgement', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({}) };
-    const service = new ServiceService(prisma as never, audit as never, access as never, { send: jest.fn() } as never, { dispatch: jest.fn() } as never, { put: jest.fn(), get: jest.fn() } as never, { renderServiceCertificate: jest.fn() } as never);
+    const service = new ServiceService(prisma as never, audit as never, access as never, { sendTracked: jest.fn() } as never, { dispatch: jest.fn() } as never, { put: jest.fn(), get: jest.fn() } as never, { renderServiceCertificate: jest.fn() } as never);
     return { service, acks };
   }
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { EmailService } from '../providers/email/email.service';
+import { EmailDeliveryService } from '../deliverability/email-delivery.service';
 import {
   interpolate,
   Lang,
@@ -27,7 +27,7 @@ export class NotificationsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly email: EmailService,
+    private readonly delivery: EmailDeliveryService,
   ) {}
 
   /** Render a template in the requested language (falls back to English). */
@@ -65,24 +65,28 @@ export class NotificationsService {
     });
   }
 
-  /** Send a template by email. Render failures/send errors are re-thrown by EmailService. */
-  async email_(params: { to: string; key: NotificationTemplateKey; vars: Vars; lang: Lang }) {
+  /** Render + send a template by email through the tracked deliverability layer. */
+  async email_(params: { to: string; key: NotificationTemplateKey; vars: Vars; lang: Lang; notificationId?: string; caseId?: string }) {
     const rendered = this.render(params.key, params.lang, params.vars);
-    await this.email.send({ to: params.to, subject: rendered.subject, text: rendered.body });
+    await this.delivery.sendTracked({
+      to: params.to, subject: rendered.subject, text: rendered.body,
+      notificationId: params.notificationId, caseId: params.caseId, templateKey: params.key,
+    });
     return rendered;
   }
 
   /**
    * Convenience: create the in-platform notification and, when an email address
-   * is supplied, also dispatch the email — both in the recipient's language.
-   * Email failures are logged but never block the in-platform notification.
+   * is supplied, also dispatch the (tracked) email — both in the recipient's
+   * language. Email failures are recorded by the deliverability layer and never
+   * block the in-platform notification.
    */
-  async dispatch(params: { userId: string; to?: string; key: NotificationTemplateKey; vars: Vars; lang?: Lang; link?: string }) {
+  async dispatch(params: { userId: string; to?: string; key: NotificationTemplateKey; vars: Vars; lang?: Lang; link?: string; caseId?: string }) {
     const lang = params.lang ?? (await this.langForUser(params.userId));
     const notification = await this.notify({ ...params, lang });
     if (params.to) {
       try {
-        await this.email_({ to: params.to, key: params.key, vars: params.vars, lang });
+        await this.email_({ to: params.to, key: params.key, vars: params.vars, lang, notificationId: notification.id, caseId: params.caseId });
       } catch (err) {
         this.logger.error(`Notification email to ${params.to} failed (in-platform notification was still created): ${(err as Error).message}`);
       }
@@ -119,7 +123,7 @@ export class NotificationsService {
       seen.add(m.userId);
       const lang = m.user?.profile?.preferredLanguage === 'ar' ? 'ar' : 'en';
       try {
-        await this.dispatch({ userId: m.userId, to: m.user?.email, key: params.key, vars: params.vars, lang, link: params.link });
+        await this.dispatch({ userId: m.userId, to: m.user?.email, key: params.key, vars: params.vars, lang, link: params.link, caseId: params.caseId });
       } catch (err) {
         this.logger.error(`notifyCaseMembers: failed for user ${m.userId}: ${(err as Error).message}`);
       }

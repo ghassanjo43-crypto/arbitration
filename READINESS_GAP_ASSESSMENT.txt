@@ -201,12 +201,25 @@ P2.2  OBSERVABILITY & INCIDENT RESPONSE                     [GAP]    Effort: S�
   Needed: centralized logging, metrics, alerting, error tracking, and a documented
   incident/breach-response runbook (breach notification ties to privacy law).
 
-P2.3  EMAIL DELIVERABILITY & NOTIFICATION HARDENING         [PARTIAL] Effort: S
-  Now: Resend is wired; the notification catalog is largely complete (recent
-  commits closed it toward 20/20).
-  Needed: production domain auth (SPF/DKIM/DMARC), bounce/complaint handling, and
-  confirmation that legally-significant notices (service, awards) have a delivery
-  audit sufficient for the seat (service ≠ receipt is already modelled).
+P2.3  EMAIL DELIVERABILITY & NOTIFICATION HARDENING          [DONE]   Effort: S
+  DONE (2026-06-23): a production-grade deliverability + service-evidence layer
+  (migration 20260623160000_email_deliverability). Every outbound email
+  (notifications AND formal service notices) is routed through EmailDeliveryService
+  and recorded as an EmailDelivery with the provider message id and a status trail
+  (QUEUED/SENT/DELIVERED/BOUNCED/COMPLAINED/FAILED/OPENED/CLICKED) + an append-only
+  event log. EmailService returns the provider id and classifies failures
+  TEMPORARY/PERMANENT. Signature-verified provider webhook (POST /webhooks/email,
+  HMAC-SHA256 of the raw body; unsigned → 401) links events back by message id.
+  Dispatch≠receipt preserved: a `delivered` event never marks a notice received;
+  `bounced`/`complained` fails service and routes to manual/substitute service.
+  Transient failures retried with backoff (retry sweep); permanent never silently
+  retried. All sends/events/failures/retries/fallbacks audited. Per-case evidence
+  in the workspace Delivery tab (registry/tribunal). Tests cover sent, delivered,
+  bounced, failed provider, retryable failure, webhook verification, unauthorized
+  webhook, and manual fallback.
+  Remaining (ops/legal, not code): configure the production sending domain's
+  SPF/DKIM/DMARC, point the provider webhook at the endpoint, and have counsel
+  confirm the delivery audit is sufficient evidence of service for each seat.
 
 P2.4  DATA RETENTION & DELETION EXECUTION            [PARTIAL][LEGAL] Effort: M
   Now: docs/DATA_RETENTION.md defines the policy; audit log is append-only.

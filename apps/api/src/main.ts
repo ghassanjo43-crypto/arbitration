@@ -9,7 +9,9 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/http-exception.filter';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  // rawBody is captured so provider webhook signatures can be verified against
+  // the exact bytes received (see the email-deliverability webhook).
+  const app = await NestFactory.create(AppModule, { bufferLogs: false, rawBody: true });
   const config = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 

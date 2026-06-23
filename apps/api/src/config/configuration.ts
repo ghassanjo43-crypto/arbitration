@@ -40,6 +40,8 @@ export interface AppConfig {
     driver: 'console' | 'smtp' | 'resend';
     from: string;
     resendApiKey?: string;
+    /** Shared secret for verifying inbound provider delivery webhooks. */
+    webhookSecret: string;
     /** Where new-registration notifications are sent (comma-separated). */
     adminNotificationEmail?: string;
     /** Where successful-login notifications are sent (comma-separated). */
@@ -117,6 +119,7 @@ export default (): AppConfig => ({
     // Falls back to Resend's shared testing sender (works without domain verification).
     from: process.env.EMAIL_FROM ?? 'Arbitration Panel <onboarding@resend.dev>',
     resendApiKey: process.env.RESEND_API_KEY,
+    webhookSecret: process.env.EMAIL_WEBHOOK_SECRET ?? 'dev-email-webhook-secret',
     adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
   },
   payment: { driver: (process.env.PAYMENT_DRIVER as 'manual' | 'stripe') ?? 'manual' },

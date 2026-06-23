@@ -81,6 +81,29 @@ paths, not just the happy path:
 Response time limits are driven by the rules-engine deadline definitions (with a
 documented safe fallback); the expiry sweep is run manually or by a scheduled job.
 
+## Communications & service evidence (dispatch ≠ receipt)
+
+Every notice, reminder, appointment invitation, challenge notice, hearing notice,
+payment notice and award delivery that goes out by email is tracked end to end by
+the deliverability layer (`apps/api/src/deliverability`):
+
+- Each send is recorded as an `EmailDelivery` with the **provider message id** and
+  a status trail (`QUEUED → SENT → DELIVERED / BOUNCED / COMPLAINED / OPENED /
+  CLICKED`), plus an append-only event log. Provider delivery webhooks
+  (`POST /webhooks/email`, signature-verified) link back by message id.
+- **Dispatch is never receipt.** A provider `delivered` event evidences delivery
+  to the mail server only — it never advances a `FormalNotice` to ACCESSED /
+  ACKNOWLEDGED. Formal receipt remains portal access or an explicit acknowledgement
+  (Chapter 2). The Certificate of Electronic Service continues to distinguish
+  dispatch, delivery, access and acknowledgement.
+- **Transient** failures (5xx / network / rate-limit) are retried with backoff;
+  **permanent** failures (hard bounce / invalid recipient) are never silently
+  retried and, for a formal notice, **fail service** and route it to
+  **manual/substitute service** (`SUBSTITUTE_SERVICE_REQUIRED`).
+- All sends, provider events, failures, retries and manual fallbacks are
+  audit-logged. Registry/tribunal see per-case delivery evidence in the workspace
+  **Delivery** tab.
+
 ## Authority boundaries (enforced in code)
 
 - The **tribunal alone** decides jurisdiction, admissibility, evidence,

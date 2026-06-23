@@ -7,13 +7,14 @@ import {
 import {
   DeliveryChannel,
   DeliveryOutcome,
+  EmailDeliveryStatus,
   NoticeStatus,
 } from '@prisma/client';
 import { Permission } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
-import { EmailService } from '../providers/email/email.service';
+import { EmailDeliveryService } from '../deliverability/email-delivery.service';
 import { StorageService } from '../providers/storage/storage.service';
 import { PdfService } from '../providers/pdf/pdf.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -42,7 +43,7 @@ export class ServiceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
-    private readonly email: EmailService,
+    private readonly delivery: EmailDeliveryService,
     private readonly notifications: NotificationsService,
     private readonly storage: StorageService,
     private readonly pdf: PdfService,
@@ -126,26 +127,54 @@ export class ServiceService {
 
       if (!recipient.email) continue;
       try {
-        await this.email.send({
+        const delivery = await this.delivery.sendTracked({
           to: recipient.email,
           subject: `[Service] ${dto.subject}`,
           text:
             `A formal notice has been served on you in case ${caseId}.\n\n` +
             `Please log in to the portal to access and acknowledge the document.\n\n` +
             `This email is notice that a document awaits collection; it is not itself the served document.`,
+          noticeId: notice.id,
+          noticeRecipientId: recipient.id,
+          caseId,
+          noticeType: dto.type,
         });
-        await this.prisma.noticeDeliveryAttempt.create({
-          data: {
-            recipientId: recipient.id,
-            channel: DeliveryChannel.EMAIL,
-            outcome: DeliveryOutcome.SENT,
-            detail: 'Notice-to-collect email dispatched (dispatch is not proof of receipt).',
-          },
-        });
-        await this.prisma.noticeRecipient.update({
-          where: { id: recipient.id },
-          data: { status: NoticeStatus.EMAIL_SENT },
-        });
+        if (delivery.status === EmailDeliveryStatus.SENT) {
+          await this.prisma.noticeDeliveryAttempt.create({
+            data: {
+              recipientId: recipient.id,
+              channel: DeliveryChannel.EMAIL,
+              outcome: DeliveryOutcome.SENT,
+              detail: `Notice-to-collect email dispatched (dispatch is not proof of receipt). Provider message ID: ${delivery.providerMessageId ?? 'pending'}.`,
+            },
+          });
+          await this.prisma.noticeRecipient.update({
+            where: { id: recipient.id },
+            data: { status: NoticeStatus.EMAIL_SENT },
+          });
+        } else if (delivery.status === EmailDeliveryStatus.FAILED && delivery.nextAttemptAt) {
+          await this.prisma.noticeDeliveryAttempt.create({
+            data: {
+              recipientId: recipient.id,
+              channel: DeliveryChannel.EMAIL,
+              outcome: DeliveryOutcome.PENDING,
+              detail: `Temporary email failure recorded; retry scheduled for ${delivery.nextAttemptAt.toISOString()}.`,
+            },
+          });
+        } else if (delivery.status === EmailDeliveryStatus.FAILED) {
+          await this.prisma.noticeDeliveryAttempt.create({
+            data: {
+              recipientId: recipient.id,
+              channel: DeliveryChannel.EMAIL,
+              outcome: DeliveryOutcome.FAILED,
+              detail: `Email dispatch failed: ${delivery.errorDetail ?? 'Unknown provider failure'}`,
+            },
+          });
+          await this.prisma.noticeRecipient.update({
+            where: { id: recipient.id },
+            data: { status: NoticeStatus.DELIVERY_FAILED },
+          });
+        }
       } catch (err) {
         const message = (err as Error).message;
         await this.prisma.noticeDeliveryAttempt.create({
@@ -194,6 +223,16 @@ export class ServiceService {
     }
 
     return this.getNotice(user, notice.id);
+  }
+
+  /**
+   * Email-delivery evidence for the case: every tracked send with its provider
+   * message id, status trail and failure/fallback details. Restricted to the
+   * registry/tribunal (it shows recipient addresses and delivery internals).
+   */
+  async listEmailDeliveries(user: AuthUser, caseId: string) {
+    await this.assertCanServe(user, caseId);
+    return this.delivery.listForCase(caseId);
   }
 
   async listForCase(user: AuthUser, caseId: string) {

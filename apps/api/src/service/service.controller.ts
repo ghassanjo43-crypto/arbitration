@@ -24,6 +24,12 @@ export class ServiceController {
     return this.service.listNoticeRequirements(user, caseId);
   }
 
+  /** Email-delivery evidence for the case (registry/tribunal only). */
+  @Get('cases/:caseId/email-deliveries')
+  emailDeliveries(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.service.listEmailDeliveries(user, caseId);
+  }
+
   @Post('cases/:caseId/notices')
   issue(
     @CurrentUser() user: AuthUser,

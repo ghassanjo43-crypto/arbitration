@@ -41,8 +41,8 @@ describe('NotificationsService', () => {
       userProfile: { findUnique: jest.fn().mockResolvedValue({ preferredLanguage }) },
       notification: { create: jest.fn(({ data }) => (created.push(data), { id: 'n1', ...data })) },
     };
-    const email = { send: jest.fn().mockResolvedValue(undefined) };
-    return { service: new NotificationsService(prisma as never, email as never), prisma, email, created };
+    const delivery = { sendTracked: jest.fn().mockResolvedValue({ id: 'd1' }) };
+    return { service: new NotificationsService(prisma as never, delivery as never), prisma, delivery, created };
   }
 
   it('renders Arabic when requested and English by default', () => {
@@ -75,8 +75,8 @@ describe('NotificationsService', () => {
       userProfile: { findUnique: jest.fn() },
       notification: { create: jest.fn(({ data }) => (created.push(data), { id: 'n', ...data })) },
     };
-    const email = { send: jest.fn().mockResolvedValue(undefined) };
-    const service = new NotificationsService(prisma as never, email as never);
+    const delivery = { sendTracked: jest.fn().mockResolvedValue({ id: 'd1' }) };
+    const service = new NotificationsService(prisma as never, delivery as never);
     await service.notifyCaseMembers({ caseId: 'c1', key: 'FILING_RECEIVED', vars: { caseRef: 'GAAP-9', filingType: 'Statement of Claim' }, excludeUserId: 'actor' });
     // u1 (once, deduped) + u2 — actor excluded.
     expect(created).toHaveLength(2);
@@ -85,12 +85,12 @@ describe('NotificationsService', () => {
   });
 
   it('dispatch creates the notification and sends the email; an email failure does not block it', async () => {
-    const { service, email, created } = make('en');
+    const { service, delivery, created } = make('en');
     await service.dispatch({ userId: 'u1', to: 'p@x.com', key: 'PAYMENT_REQUESTED', vars: { caseRef: 'GAAP-3', amount: 1000, currency: 'USD', dueDate: '2026-07-01' } });
     expect(created).toHaveLength(1);
-    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'p@x.com' }));
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({ to: 'p@x.com' }));
 
-    email.send.mockRejectedValueOnce(new Error('smtp down'));
+    delivery.sendTracked.mockRejectedValueOnce(new Error('smtp down'));
     const res = await service.dispatch({ userId: 'u1', to: 'p@x.com', key: 'PAYMENT_OVERDUE', vars: { caseRef: 'GAAP-3' } });
     expect(res.id).toBe('n1'); // still created despite email failure
   });
