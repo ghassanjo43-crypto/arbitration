@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Request, Response } from 'express';
 import { AwardsService } from './awards.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { CorrectionRequestDto, CreateAwardDto, SignAwardDto } from './dto';
+import { CorrectionRequestDto, CreateAwardDto, GenerateAwardDocumentDto, SignAwardDto } from './dto';
 
 @ApiTags('awards')
 @ApiBearerAuth()
@@ -31,6 +32,24 @@ export class AwardsController {
   @Post('awards/:id/issue')
   issue(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.awards.issue(user, id);
+  }
+
+  /** Generate (or regenerate) the formal award PDF (tribunal only). */
+  @Post('awards/:id/document')
+  generateDocument(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: GenerateAwardDocumentDto) {
+    return this.awards.generateDocument(user, id, dto);
+  }
+
+  /** Download the generated award PDF (tribunal anytime; parties once issued). */
+  @Get('awards/:id/document')
+  async downloadDocument(@CurrentUser() user: AuthUser, @Param('id') id: string, @Req() req: Request, @Res() res: Response) {
+    const { buffer, fileName } = await this.awards.downloadDocument(user, id, req.ip);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.send(buffer);
   }
 
   @Post('awards/:id/corrections')

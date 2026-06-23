@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { ServiceService } from './service.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -70,5 +70,17 @@ export class ServiceController {
   @Post('notices/:id/certificate')
   certificate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.generateCertificate(user, id);
+  }
+
+  /** Download the generated Certificate of Electronic Service as a PDF. */
+  @Get('notices/:id/certificate/document')
+  async certificateDocument(@CurrentUser() user: AuthUser, @Param('id') id: string, @Req() req: Request, @Res() res: Response) {
+    const { buffer, fileName } = await this.service.downloadCertificate(user, id, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.send(buffer);
   }
 }

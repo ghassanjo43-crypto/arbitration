@@ -88,6 +88,12 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   flags and routes risk; it never makes the legal call automatically. `GET /api/health` reports
   `screening: up|down`. Run `POST /api/compliance/screenings/expire-sweep` (or schedule it) to
   expire stale screenings.
+- **Generated documents (awards & service certificates)**: the platform renders formal,
+  paginated PDFs (PdfService/pdfkit) and stores them via the storage provider, sealed with a
+  SHA-256 hash. Award PDFs are tribunal-only to generate and stream to parties only after issue;
+  certificate PDFs render automatically on certificate generation. No extra config is required;
+  durability follows `STORAGE_DRIVER`. E-signature/wet-ink formalities and Arabic (RTL) award
+  rendering remain follow-ups (see the readiness assessment).
 - **Email/payments** run on `resend`/`manual`. Wire real providers via the documented env vars
   before going live (payments intentionally remain manual pending the escrow/client-funds and
   AML/KYC accounting decisions — see the readiness assessment).

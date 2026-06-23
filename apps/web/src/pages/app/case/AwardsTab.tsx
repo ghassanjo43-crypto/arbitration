@@ -10,6 +10,7 @@ interface Award {
   seat: string | null;
   signatureStatus: string;
   correctionStatus: string | null;
+  generatedDocumentKey: string | null;
   deliveries: { recipientLabel: string; deliveredAt: string | null }[];
   corrections: { kind: string; status: string }[];
 }
@@ -30,6 +31,15 @@ export function AwardsTab({ caseId, isTribunal }: { caseId: string; isTribunal: 
   const correct = useMutation({
     mutationFn: async (id: string) => api.post(`/awards/${id}/corrections`, { kind: 'CORRECTION', details: 'Please correct a clerical error in the award.' }),
     onSuccess: invalidate,
+  });
+  const generateDoc = useMutation({ mutationFn: async (id: string) => api.post(`/awards/${id}/document`, {}), onSuccess: invalidate });
+  const downloadDoc = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.get(`/awards/${id}/document`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
   });
 
   return (
@@ -71,6 +81,14 @@ export function AwardsTab({ caseId, isTribunal }: { caseId: string; isTribunal: 
               )}
               {!isTribunal && a.issueDate && (
                 <button className="btn btn--ghost" disabled={correct.isPending} onClick={() => correct.mutate(a.id)}>Request correction</button>
+              )}
+              {isTribunal && (
+                <button className="btn btn--ghost" disabled={generateDoc.isPending} onClick={() => generateDoc.mutate(a.id)}>
+                  {a.generatedDocumentKey ? 'Regenerate PDF' : 'Generate PDF'}
+                </button>
+              )}
+              {a.generatedDocumentKey && (isTribunal || a.issueDate) && (
+                <button className="btn btn--ghost" disabled={downloadDoc.isPending} onClick={() => downloadDoc.mutate(a.id)}>Download PDF</button>
               )}
             </div>
           </article>

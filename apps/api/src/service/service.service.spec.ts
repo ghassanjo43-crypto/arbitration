@@ -67,7 +67,9 @@ describe('ServiceService.issueNotice — email dispatch is not receipt', () => {
         : jest.fn().mockRejectedValue(new Error('bounce')),
     };
     const notifications = { dispatch: jest.fn().mockResolvedValue(undefined) };
-    const service = new ServiceService(prisma as never, audit as never, access as never, email as never, notifications as never);
+    const storage = { put: jest.fn().mockResolvedValue({ storageKey: 'k', fileHash: 'h', fileSize: 1 }), get: jest.fn() };
+    const pdf = { renderServiceCertificate: jest.fn().mockResolvedValue(Buffer.from('pdf')) };
+    const service = new ServiceService(prisma as never, audit as never, access as never, email as never, notifications as never, storage as never, pdf as never);
     return { service, attempts, recipientUpdates, failures, documents, email };
   }
 
@@ -146,7 +148,7 @@ describe('ServiceService.acknowledge — sealed acknowledgement', () => {
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const access = { assertCanAccessCase: jest.fn().mockResolvedValue({}) };
-    const service = new ServiceService(prisma as never, audit as never, access as never, { send: jest.fn() } as never, { dispatch: jest.fn() } as never);
+    const service = new ServiceService(prisma as never, audit as never, access as never, { send: jest.fn() } as never, { dispatch: jest.fn() } as never, { put: jest.fn(), get: jest.fn() } as never, { renderServiceCertificate: jest.fn() } as never);
     return { service, acks };
   }
 

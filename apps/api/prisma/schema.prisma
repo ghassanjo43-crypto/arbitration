@@ -1460,6 +1460,8 @@ model ServiceCertificate {
   generatedAt       DateTime     @default(now())
   payload           String // JSON snapshot: recipients, methods, timestamps, statuses
   payloadHash       String
+  documentKey       String? // storage key of the generated certificate PDF
+  documentHash      String? // SHA-256 of the generated PDF (tamper-evident)
 }
 
 enum HearingStatus {
@@ -1638,6 +1640,8 @@ model Award {
   signatureStatus        String    @default("PENDING") // PENDING | PARTIAL | SIGNED
   signedDocumentKey      String?
   signatureMetadata      String? // JSON: e-sign provider metadata
+  generatedDocumentKey   String? // storage key of the platform-generated award PDF
+  documentHash           String? // SHA-256 of the generated PDF (tamper-evident)
   certifiedCopyAvailable Boolean   @default(false)
   correctionStatus       String? // NONE | REQUESTED | ISSUED
   interpretationStatus   String?

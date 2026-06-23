@@ -14,6 +14,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { EmailService } from '../providers/email/email.service';
+import { StorageService } from '../providers/storage/storage.service';
+import { PdfService } from '../providers/pdf/pdf.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
 import {
@@ -42,6 +44,8 @@ export class ServiceService {
     private readonly access: CaseAccessService,
     private readonly email: EmailService,
     private readonly notifications: NotificationsService,
+    private readonly storage: StorageService,
+    private readonly pdf: PdfService,
   ) {}
 
   private async assertCanServe(user: AuthUser, caseId: string) {
@@ -396,15 +400,60 @@ export class ServiceService {
       }),
     ]);
 
+    // Render the certificate as a sealed PDF and store it durably.
+    const pdfBuffer = await this.pdf.renderServiceCertificate({
+      certificateNumber,
+      caseReference: notice.case.reference,
+      noticeType: notice.type,
+      subject: notice.subject,
+      issuedAt: notice.issuedAt,
+      generatedAt: new Date(),
+      payloadHash,
+      recipients: payloadObj.recipients.map((r) => ({
+        label: r.label, email: r.email, status: r.status,
+        portalAvailableAt: r.portalAvailableAt, firstAccessedAt: r.firstAccessedAt, acknowledgedAt: r.acknowledgedAt,
+      })),
+      documents: payloadObj.documents.map((d) => ({ filename: d.filename, contentHash: d.contentHash })),
+    });
+    const documentHash = createHash('sha256').update(pdfBuffer).digest('hex');
+    const stored = await this.storage.put(pdfBuffer, `certificate-${certificateNumber}.pdf`);
+    const withDoc = await this.prisma.serviceCertificate.update({
+      where: { id: certificate.id },
+      data: { documentKey: stored.storageKey, documentHash },
+    });
+
     await this.audit.record({
       userId: user.id,
       action: 'SERVICE_CERTIFICATE_GENERATED',
       entityType: 'ServiceCertificate',
       entityId: certificate.id,
       caseId: notice.caseId,
-      metadata: { certificateNumber, allCompleted },
+      metadata: { certificateNumber, allCompleted, documentHash },
     });
-    return certificate;
+    return withDoc;
+  }
+
+  /** Stream the generated Certificate of Electronic Service PDF. */
+  async downloadCertificate(user: AuthUser, noticeId: string, ctx: RequestContext) {
+    const notice = await this.prisma.formalNotice.findUnique({
+      where: { id: noticeId },
+      include: { case: { select: { reference: true } }, certificate: true },
+    });
+    if (!notice) throw new NotFoundException('Notice not found.');
+    await this.assertCanServe(user, notice.caseId);
+    if (!notice.certificate?.documentKey) {
+      throw new NotFoundException('No certificate document has been generated for this notice.');
+    }
+    const buffer = await this.storage.get(notice.certificate.documentKey);
+    await this.audit.record({
+      userId: user.id,
+      action: 'SERVICE_CERTIFICATE_DOWNLOADED',
+      entityType: 'ServiceCertificate',
+      entityId: notice.certificate.id,
+      caseId: notice.caseId,
+      ipAddress: ctx.ipAddress,
+    });
+    return { buffer, fileName: `certificate-${notice.certificate.certificateNumber}.pdf` };
   }
 
   /**

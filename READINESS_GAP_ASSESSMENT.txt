@@ -124,12 +124,24 @@ P1.2  A REAL, VETTED ARBITRATOR PANEL                       [GAP]    Effort: L
   an actual admissions process. A "panel" with no real arbitrators is the
   headline gap for presenting this as a panel.
 
-P1.3  AWARD & NOTICE DOCUMENT GENERATION                    [GAP]    Effort: M
-  Now: awards/notices are data records with signature METADATA fields; there is
-  no PDF/printable-original generation pipeline.
-  Needed: generate formal, paginated, e-signed (and where required, certified /
-  wet-ink) award and certificate documents from templates, with tamper-evident
-  sealing. Tied to LEGAL items 6–7 (e-signature / electronic-award validity).
+P1.3  AWARD & NOTICE DOCUMENT GENERATION                   [DONE]    Effort: M
+  DONE (2026-06-23): a PdfService (providers/pdf, pdfkit — bundled fonts, no
+  assets) renders formal, paginated, numbered-footer PDFs. Award PDF: institution
+  header, parties, tribunal, operative text, enforcement/administration
+  boilerplate, and a signature block per arbitrator. Certificate of Electronic
+  Service PDF: recipients/delivery/access/acknowledgement table + the dispatch≠
+  receipt integrity note and sealed snapshot hash. Both are stored durably (S3-
+  capable StorageService) and sealed with a SHA-256 documentHash (migration
+  20260623110000_generated_documents adds the keys/hashes). Awards: tribunal-only
+  POST /awards/:id/document to generate; GET /awards/:id/document streams it
+  (tribunal anytime; parties only after issue — drafts stay hidden). Certificates
+  auto-render on generation; GET /notices/:id/certificate/document streams.
+  Generation/download are audit-logged. Frontend: Generate/Download PDF in the
+  awards tab. Tests cover PDF validity, tribunal-only generation, and the
+  draft-vs-issued download gate.
+  Remaining (P3/legal): real e-signature integration and certified/wet-ink
+  formalities where a seat requires them (LEGAL items 6–7); Arabic (RTL) award
+  rendering needs an embedded shaping font (future).
 
 P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS [PARTIAL] Effort: M
   Now: invite → conflict → accept → constitute is built; challenge decisions

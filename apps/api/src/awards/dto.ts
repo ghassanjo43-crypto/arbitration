@@ -11,6 +11,11 @@ export class SignAwardDto {
   @IsOptional() @IsString() signatureMetadata?: string;
 }
 
+export class GenerateAwardDocumentDto {
+  /** Optional operative/award text inserted by the tribunal into the PDF. */
+  @IsOptional() @IsString() body?: string;
+}
+
 export class CorrectionRequestDto {
   @IsEnum(CorrectionKind) kind!: CorrectionKind;
   @IsString() details!: string;

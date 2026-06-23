@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CaseStage } from '@prisma/client';
 import { ENFORCEMENT_WORDING } from '@gaap/shared';
@@ -5,8 +6,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { StorageService } from '../providers/storage/storage.service';
+import { PdfService } from '../providers/pdf/pdf.service';
 import { AuthUser } from '../auth/types';
-import { CorrectionRequestDto, CreateAwardDto, SignAwardDto } from './dto';
+import { CorrectionRequestDto, CreateAwardDto, GenerateAwardDocumentDto, SignAwardDto } from './dto';
+
+const TRIBUNAL_CASE_ROLES = ['TRIBUNAL_CHAIR', 'TRIBUNAL_MEMBER', 'TRIBUNAL_SECRETARY'] as const;
 
 @Injectable()
 export class AwardsService {
@@ -15,6 +20,8 @@ export class AwardsService {
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
     private readonly notifications: NotificationsService,
+    private readonly storage: StorageService,
+    private readonly pdf: PdfService,
   ) {}
 
   private async assertTribunal(user: AuthUser, caseId: string) {
@@ -101,6 +108,79 @@ export class AwardsService {
 
     await this.audit.record({ userId: user.id, action: 'AWARD_ISSUED', entityType: 'Award', entityId: awardId, caseId: award.caseId, metadata: { recipients: parties.length } });
     return { issued: true, deliveries: parties.length };
+  }
+
+  /**
+   * Generate (or regenerate) the formal award PDF from the case + award record,
+   * store it durably, and seal it with a SHA-256 hash. Tribunal-only.
+   */
+  async generateDocument(user: AuthUser, awardId: string, dto: GenerateAwardDocumentDto) {
+    const award = await this.prisma.award.findUnique({ where: { id: awardId } });
+    if (!award) throw new NotFoundException('Award not found.');
+    await this.assertTribunal(user, award.caseId);
+
+    const [theCase, parties, tribunalMembers] = await Promise.all([
+      this.prisma.case.findUnique({ where: { id: award.caseId }, select: { reference: true, title: true } }),
+      this.prisma.caseParty.findMany({ where: { caseId: award.caseId }, select: { side: true, legalName: true } }),
+      this.prisma.caseTeamMember.findMany({
+        where: { caseId: award.caseId, active: true, caseRole: { in: [...TRIBUNAL_CASE_ROLES] } },
+        include: { user: { select: { email: true, profile: { select: { displayName: true } } } } },
+      }),
+    ]);
+
+    const buffer = await this.pdf.renderAward({
+      caseReference: theCase?.reference ?? award.caseId,
+      caseTitle: theCase?.title ?? '',
+      awardType: award.type,
+      seat: award.seat,
+      issueDate: award.issueDate,
+      parties: parties.map((p) => ({ side: p.side, legalName: p.legalName })),
+      tribunal: tribunalMembers.map((m) => ({ name: m.user.profile?.displayName ?? m.user.email, role: m.caseRole })),
+      body: dto.body,
+    });
+
+    const documentHash = createHash('sha256').update(buffer).digest('hex');
+    const stored = await this.storage.put(buffer, `award-${theCase?.reference ?? award.caseId}.pdf`);
+
+    const updated = await this.prisma.award.update({
+      where: { id: awardId },
+      data: { generatedDocumentKey: stored.storageKey, documentHash },
+    });
+    await this.audit.record({
+      userId: user.id,
+      action: 'AWARD_DOCUMENT_GENERATED',
+      entityType: 'Award',
+      entityId: awardId,
+      caseId: award.caseId,
+      metadata: { hash: documentHash, size: stored.fileSize },
+    });
+    return { id: updated.id, generatedDocumentKey: stored.storageKey, documentHash, fileSize: stored.fileSize };
+  }
+
+  /**
+   * Stream the generated award PDF. The tribunal may always download it; parties
+   * may download only after the award is issued (drafts stay tribunal-only).
+   */
+  async downloadDocument(user: AuthUser, awardId: string, ip?: string) {
+    const award = await this.prisma.award.findUnique({ where: { id: awardId } });
+    if (!award) throw new NotFoundException('Award not found.');
+    const m = await this.access.assertCanAccessCase(user, award.caseId);
+    if (!m.isTribunal && !award.issueDate) {
+      throw new ForbiddenException('This award has not been issued.');
+    }
+    if (!award.generatedDocumentKey) throw new NotFoundException('No award document has been generated yet.');
+
+    const buffer = await this.storage.get(award.generatedDocumentKey);
+    const ref = await this.prisma.case.findUnique({ where: { id: award.caseId }, select: { reference: true } });
+    await this.audit.record({
+      userId: user.id,
+      action: 'AWARD_DOCUMENT_DOWNLOADED',
+      entityType: 'Award',
+      entityId: awardId,
+      caseId: award.caseId,
+      ipAddress: ip,
+    });
+    return { buffer, fileName: `award-${ref?.reference ?? award.caseId}.pdf` };
   }
 
   /** A party may request correction / interpretation / an additional award. */
