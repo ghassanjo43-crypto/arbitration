@@ -66,6 +66,11 @@ export class ReplaceMemberDto {
   @IsOptional()
   @IsEnum(AppointmentMethod)
   appointmentMethod?: AppointmentMethod;
+
+  /** Audit-friendly reason for the replacement. */
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 export class ConflictDisclosureDto {

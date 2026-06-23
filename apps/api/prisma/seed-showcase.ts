@@ -238,15 +238,16 @@ export async function seedShowcase(refs: ShowcaseRefs) {
     },
   });
 
-  // ---- Compliance: a CLEAR screening on the showcase case + a flagged hold elsewhere ----
+  // ---- Compliance: a CLEAR screening on the claimant + a flagged respondent with
+  // an ACTIVE hold ON THIS CASE (so the Tribunal tab shows the compliance-hold banner).
   await prisma.screeningCheck.create({
     data: { subjectType: ScreeningSubjectType.PARTY, subjectId: claimantParty.id, subjectName: 'Meridian Infrastructure Partners Ltd', caseId: c.id, screeningType: ScreeningType.SANCTIONS, status: ScreeningStatus.CLEAR, provider: 'mock', providerRef: `mock_${randomUUID()}`, riskScore: 0, matchCount: 0, resultSummary: 'No watchlist match (mock provider).', triggerEvent: 'CASE_REGISTERED', requestedById: registrar.id, screenedAt: new Date('2026-02-02T09:05:00Z'), expiresAt: new Date('2027-02-02T09:05:00Z') },
   });
   const flagged = await prisma.screeningCheck.create({
-    data: { subjectType: ScreeningSubjectType.PARTY, subjectName: 'Sanctioned Holdings (sample)', screeningType: ScreeningType.SANCTIONS, status: ScreeningStatus.POSSIBLE_MATCH, provider: 'mock', providerRef: `mock_${randomUUID()}`, riskScore: 80, matchCount: 1, resultSummary: 'Possible match on a watchlist token (mock provider).', triggerEvent: 'PARTY_ADDED', requestedById: registrar.id, screenedAt: new Date() },
+    data: { subjectType: ScreeningSubjectType.PARTY, subjectId: respondentParty.id, subjectName: 'Gulf Construction & Engineering LLC', caseId: c.id, screeningType: ScreeningType.SANCTIONS, status: ScreeningStatus.POSSIBLE_MATCH, provider: 'mock', providerRef: `mock_${randomUUID()}`, riskScore: 80, matchCount: 1, resultSummary: 'Possible match on a watchlist token (mock provider).', triggerEvent: 'PARTY_ADDED', requestedById: registrar.id, screenedAt: new Date() },
   });
   await prisma.complianceHold.create({
-    data: { subjectType: ScreeningSubjectType.PARTY, reason: 'Possible SANCTIONS match — manual review required', screeningCheckId: flagged.id, status: ComplianceHoldStatus.ACTIVE, createdById: registrar.id },
+    data: { caseId: c.id, subjectType: ScreeningSubjectType.PARTY, subjectId: respondentParty.id, reason: 'Possible SANCTIONS match on a party — manual review required', screeningCheckId: flagged.id, status: ComplianceHoldStatus.ACTIVE, createdById: registrar.id },
   });
 
   // ---- Rules review: seed mixed counsel-review decisions on the DRAFT v3 ----

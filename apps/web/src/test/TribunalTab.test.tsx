@@ -12,6 +12,7 @@ import { TribunalTab } from '../pages/app/case/TribunalTab';
 function overview(over: Record<string, unknown> = {}) {
   return {
     composition: 'THREE_MEMBER', constituted: false, pendingChallenge: false,
+    complianceHold: { active: false, reason: null },
     members: [
       { id: 'm1', arbitratorUserId: 'u1', displayName: 'Dr Chair', role: 'CHAIR', status: 'ACTIVE', nominatedBy: null, acceptedAt: '2026-06-01T00:00:00Z', vacatedAt: null, vacancyReason: null },
     ],
@@ -62,6 +63,41 @@ describe('TribunalTab — display & rule-driven deadlines', () => {
         : Promise.resolve({ data: { data: [] } }));
     renderTab();
     await waitFor(() => expect(screen.getByText(/constitution is suspended/i)).toBeInTheDocument());
+    // Constitution is proactively disabled.
+    expect(screen.getByText('Constitute tribunal')).toBeDisabled();
+  });
+
+  it('surfaces an active compliance hold and blocks constitution proactively', async () => {
+    get.mockImplementation((url: string) =>
+      url.includes('/appointments/overview')
+        ? Promise.resolve({ data: overview({ complianceHold: { active: true, reason: 'Possible SANCTIONS match — manual review required' } }) })
+        : Promise.resolve({ data: { data: [] } }));
+    renderTab();
+    await waitFor(() => expect(screen.getByText(/compliance hold/i)).toBeInTheDocument());
+    expect(screen.getByText(/Possible SANCTIONS match/)).toBeInTheDocument();
+    expect(screen.getByText('Constitute tribunal')).toBeDisabled();
+  });
+
+  it('shows an expired invitation in the status column', async () => {
+    get.mockImplementation((url: string) => {
+      if (!url.includes('/appointments/overview')) return Promise.resolve({ data: { data: [] } });
+      const o = overview();
+      o.invitations = [{ ...o.invitations[1], status: 'EXPIRED' }] as never;
+      return Promise.resolve({ data: o });
+    });
+    renderTab();
+    expect(await screen.findByText('Expired')).toBeInTheDocument();
+  });
+
+  it('labels a suspended response deadline distinctly', async () => {
+    get.mockImplementation((url: string) => {
+      if (!url.includes('/appointments/overview')) return Promise.resolve({ data: { data: [] } });
+      const o = overview();
+      o.invitations = [{ ...o.invitations[0], responseDeadline: { dueAt: '2026-07-01T23:59:59Z', status: 'SUSPENDED', source: 'RULE' } }] as never;
+      return Promise.resolve({ data: o });
+    });
+    renderTab();
+    expect(await screen.findByText('Suspended')).toBeInTheDocument();
   });
 });
 
@@ -109,6 +145,23 @@ describe('TribunalTab — action flows', () => {
     fireEvent.click(within(dialog).getByText('Confirm vacancy'));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/tribunal/members/m1/vacancy', expect.objectContaining({ reason: 'RESIGNATION' })));
     await screen.findByText('Vacancy recorded.');
+  });
+
+  it('replacement dialog carries an audit-friendly reason to the API', async () => {
+    // A vacated member exposes a Replace action.
+    get.mockImplementation((url: string) => {
+      if (url.startsWith('/arbitrators')) return Promise.resolve({ data: { data: [{ id: 'p9', fullName: 'New Arb' }] } });
+      const o = overview();
+      o.members = [{ ...o.members[0], status: 'RESIGNED', vacancyReason: 'RESIGNATION', vacatedAt: '2026-06-02T00:00:00Z' }] as never;
+      return Promise.resolve({ data: o });
+    });
+    renderTab();
+    fireEvent.click(await screen.findByText('Replace'));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Arbitrator'), { target: { value: 'p9' } });
+    fireEvent.change(within(dialog).getByLabelText('Replacement reason'), { target: { value: 'Predecessor resigned' } });
+    fireEvent.click(within(dialog).getByText('Confirm replacement'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/cases/c1/tribunal/replace', expect.objectContaining({ reason: 'Predecessor resigned', arbitratorId: 'p9' })));
   });
 
   it('surfaces an API error (e.g. constitution blocked) as an error state', async () => {

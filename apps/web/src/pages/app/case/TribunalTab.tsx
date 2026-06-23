@@ -19,6 +19,7 @@ interface Challenge {
 }
 interface Overview {
   composition: string | null; constituted: boolean; pendingChallenge: boolean;
+  complianceHold: { active: boolean; reason: string | null };
   members: Member[]; invitations: Invitation[]; challenges: Challenge[];
   viewer: { canManage: boolean; canDecideChallenge: boolean };
 }
@@ -88,6 +89,12 @@ export function TribunalTab({ caseId }: { caseId: string }) {
           An arbitrator challenge is pending — <strong>constitution is suspended</strong> until it is decided.
         </div>
       )}
+      {data.complianceHold.active && (
+        <div className="alert alert--danger" role="status">
+          An active <strong>compliance hold</strong> is blocking this case — constitution cannot proceed until it is reviewed and released.
+          {data.complianceHold.reason && <span className="field__hint"> ({data.complianceHold.reason})</span>}
+        </div>
+      )}
       {notice && <div className="alert alert--success" role="status">{notice}</div>}
       {error && <div className="alert alert--danger" role="alert">{error}</div>}
 
@@ -135,7 +142,11 @@ export function TribunalTab({ caseId }: { caseId: string }) {
           <div style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-3)', flexWrap: 'wrap' }}>
             <button className="btn btn--primary btn--sm" onClick={() => setDialog({ type: 'default' })}>Default appointment</button>
             <button className="btn btn--ghost btn--sm" onClick={() => setDialog({ type: 'nominateChair' })}>Nominate chair</button>
-            <button className="btn btn--ghost btn--sm" disabled={run.isPending}
+            <button className="btn btn--ghost btn--sm"
+              disabled={run.isPending || data.constituted || data.pendingChallenge || data.complianceHold.active}
+              title={data.pendingChallenge ? 'Blocked: a challenge is pending'
+                : data.complianceHold.active ? 'Blocked: an active compliance hold'
+                : data.constituted ? 'Already constituted' : 'Constitute the tribunal'}
               onClick={() => call(() => api.post(`/cases/${caseId}/tribunal/constitute`, {}), 'Tribunal constituted.')}>Constitute tribunal</button>
             <button className="btn btn--ghost btn--sm" disabled={run.isPending}
               onClick={() => call(() => api.post('/appointments/expire-sweep', {}), 'Expiry sweep completed.')}>Run expiry sweep</button>
@@ -159,14 +170,17 @@ export function TribunalTab({ caseId }: { caseId: string }) {
                   <td>{inv.disclosureFiled ? <span className="badge badge--success">Filed</span> : <span className="badge badge--warning">Pending</span>}</td>
                   <td>
                     <span title={`source: ${inv.responseDeadline.source}`}>{fmt(inv.responseDeadline.dueAt)}</span>
-                    <span className={`badge ${inv.responseDeadline.source === 'RULE' ? 'badge--gold' : ''}`} style={{ marginInlineStart: 6 }}>
+                    <span className={`badge ${inv.responseDeadline.source === 'RULE' ? 'badge--gold' : ''}`} style={{ marginInlineStart: 6 }}
+                      title={inv.responseDeadline.source === 'RULE' ? 'Computed from the case rule set' : 'No rule deadline — safe fixed fallback'}>
                       {inv.responseDeadline.source === 'RULE' ? 'Rule' : 'Fallback'}
                     </span>
-                    {inv.responseDeadline.status && inv.responseDeadline.status !== 'OPEN' && (
-                      <span className="badge" style={{ marginInlineStart: 6 }}>{humanize(inv.responseDeadline.status)}</span>
-                    )}
-                    {inv.reminderCount > 0 && <span className="field__hint"> · {inv.reminderCount} reminder(s)</span>}
-                    {inv.declineReason && <div className="field__hint">Reason: {inv.declineReason}</div>}
+                    {/* Distinct labelling for extension / suspension of the response window
+                        (expiry is already shown in the invitation status column). */}
+                    {inv.responseDeadline.status === 'EXTENDED' && <span className="badge badge--info" style={{ marginInlineStart: 6 }}>Extended</span>}
+                    {inv.responseDeadline.status === 'SUSPENDED' && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>Suspended</span>}
+                    {inv.responseDeadline.status === 'WAIVED' && <span className="badge" style={{ marginInlineStart: 6 }}>Waived</span>}
+                    {inv.reminderCount > 0 && <span className="field__hint"> · {inv.reminderCount} reminder(s){inv.lastReminderAt ? `, last ${fmt(inv.lastReminderAt)}` : ''}</span>}
+                    {inv.declineReason && <div className="field__hint">Decline reason: {inv.declineReason}</div>}
                   </td>
                   {canManage && (
                     <td>
@@ -323,8 +337,11 @@ function ActionDialog({ dialog, caseId, arbitrators, busy, onCancel, onSubmit }:
       <Modal title={`Replace ${dialog.member.displayName}`} onCancel={onCancel}>
         <p className="field__hint">Invite a replacement arbitrator to fill the vacated seat.</p>
         {arbSelect}{roleSelect}{sideSelect}
+        <label className="field"><span className="field__label">Reason (recorded)</span>
+          <textarea className="input" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Replacement reason" />
+        </label>
         <button className="btn btn--primary" disabled={busy || !arbitratorId}
-          onClick={() => onSubmit(() => api.post(`/cases/${caseId}/tribunal/replace`, { vacatedUserId: dialog.member.arbitratorUserId, arbitratorId, proposedRole: role, nominatedBy: side || undefined }), 'Replacement invited.')}>
+          onClick={() => onSubmit(() => api.post(`/cases/${caseId}/tribunal/replace`, { vacatedUserId: dialog.member.arbitratorUserId, arbitratorId, proposedRole: role, nominatedBy: side || undefined, reason: reason || undefined }), 'Replacement invited.')}>
           Confirm replacement
         </button>
       </Modal>

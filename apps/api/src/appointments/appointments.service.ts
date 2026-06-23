@@ -5,6 +5,7 @@ import {
   CaseRole,
   CaseStage,
   ChallengeStatus,
+  ComplianceHoldStatus,
   DeadlineStatus,
   ScreeningSubjectType,
   TribunalComposition,
@@ -302,7 +303,7 @@ export class AppointmentsService {
   async caseOverview(user: AuthUser, caseId: string) {
     await this.access.assertCanAccessCase(user, caseId);
 
-    const [tribunal, invitations, challenges, disclosures] = await Promise.all([
+    const [tribunal, invitations, challenges, disclosures, hold] = await Promise.all([
       this.prisma.tribunal.findUnique({ where: { caseId }, include: { members: true } }),
       this.prisma.appointmentInvitation.findMany({
         where: { caseId },
@@ -311,6 +312,8 @@ export class AppointmentsService {
       }),
       this.prisma.arbitratorChallenge.findMany({ where: { caseId }, orderBy: { createdAt: 'desc' } }),
       this.prisma.conflictDisclosure.findMany({ where: { caseId }, orderBy: { createdAt: 'desc' } }),
+      // An active compliance hold freezes constitution; surface it proactively.
+      this.prisma.complianceHold.findFirst({ where: { caseId, status: ComplianceHoldStatus.ACTIVE }, orderBy: { createdAt: 'desc' } }),
     ]);
 
     // Resolve display names for member/challenge user ids in one query.
@@ -337,6 +340,7 @@ export class AppointmentsService {
       composition: tribunal?.composition ?? null,
       constituted: tribunal?.constituted ?? false,
       pendingChallenge: openChallenge,
+      complianceHold: { active: !!hold, reason: hold?.reason ?? null },
       members: (tribunal?.members ?? []).map((m) => ({
         id: m.id,
         arbitratorUserId: m.arbitratorUserId,
@@ -579,7 +583,7 @@ export class AppointmentsService {
       dto.appointmentMethod ?? AppointmentMethod.PARTY_NOMINATION,
       { nominatedBy: dto.nominatedBy, fillsVacancyUserId: dto.vacatedUserId },
     );
-    await this.audit.record({ userId: actor.id, action: 'ARBITRATOR_REPLACEMENT_INVITED', entityType: 'AppointmentInvitation', entityId: invitation.id, caseId, metadata: { arbitratorId: dto.arbitratorId, role: dto.proposedRole, replaces: dto.vacatedUserId } });
+    await this.audit.record({ userId: actor.id, action: 'ARBITRATOR_REPLACEMENT_INVITED', entityType: 'AppointmentInvitation', entityId: invitation.id, caseId, metadata: { arbitratorId: dto.arbitratorId, role: dto.proposedRole, replaces: dto.vacatedUserId, reason: dto.reason } });
     await this.notifications.notifyCaseMembers({ caseId, key: 'ARBITRATOR_REPLACEMENT', vars: { caseRef: ref }, link: `/app/cases/${caseId}`, partyOnly: true });
     if (arbitratorUserId) {
       await this.notifications.dispatch({ userId: arbitratorUserId, key: 'APPOINTMENT_INVITATION', vars: { caseRef: ref, role: String(dto.proposedRole).replaceAll('_', ' ') }, link: '/app' }).catch(() => undefined);

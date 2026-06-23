@@ -119,16 +119,19 @@ describe('AppointmentsService — case overview (read)', () => {
       conflictDisclosure: { findMany: jest.fn().mockResolvedValue([{ arbitratorId: 'prof1' }]) },
       userProfile: { findMany: jest.fn().mockResolvedValue([{ userId: 'u1', displayName: 'Dr Smith' }]) },
       deadline: { findMany: jest.fn().mockResolvedValue([{ id: 'dl1', dueAt: due, status: 'OPEN' }]) },
+      complianceHold: { findFirst: jest.fn().mockResolvedValue({ id: 'h1', reason: 'Possible SANCTIONS match — manual review required' }) },
     }, { caseRoles: [] });
 
     const managerUser = { id: 'reg1', email: 'r@x.com', roles: [], permissions: ['appointment:manage'] } as unknown as AuthUser;
     const res = await service.caseOverview(managerUser, 'c1') as Record<string, unknown> as {
       composition: string; pendingChallenge: boolean; members: unknown[];
+      complianceHold: { active: boolean; reason: string | null };
       invitations: Array<{ disclosureFiled: boolean; responseDeadline: { source: string } }>;
       challenges: unknown[]; viewer: { canManage: boolean };
     };
     expect(res.composition).toBe(TribunalComposition.SOLE);
     expect(res.pendingChallenge).toBe(true);
+    expect(res.complianceHold).toEqual({ active: true, reason: 'Possible SANCTIONS match — manual review required' });
     expect(res.members).toHaveLength(1);
     expect(res.invitations[0].disclosureFiled).toBe(true);
     expect(res.invitations[0].responseDeadline.source).toBe('RULE');
