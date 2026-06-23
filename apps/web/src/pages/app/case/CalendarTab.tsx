@@ -5,7 +5,7 @@ import { api } from '../../../lib/api';
 import { useAuth } from '../../../auth/AuthContext';
 
 interface Deadline { id: string; title: string; description?: string; dueAt: string; status: string; }
-interface Room { kind: string; name: string; joinUrl?: string; }
+interface Room { id: string; kind: string; name: string; canJoin: boolean; }
 interface Hearing { id: string; title: string; scheduledStart: string; status: string; rooms: Room[]; }
 
 export function CalendarTab({ caseId, isTribunal }: { caseId: string; isTribunal: boolean }) {
@@ -29,6 +29,14 @@ export function CalendarTab({ caseId, isTribunal }: { caseId: string; isTribunal
   const addHearing = useMutation({
     mutationFn: async () => (await api.post(`/cases/${caseId}/hearings`, { title: hTitle, scheduledStart: new Date(hStart).toISOString() })).data,
     onSuccess: () => { setHTitle(''); setHStart(''); void qc.invalidateQueries({ queryKey: ['hearings', caseId] }); },
+  });
+
+  // Join links are minted per-room, on demand, and only for authorised rooms —
+  // they are never embedded in the hearings list.
+  const joinRoom = useMutation({
+    mutationFn: async ({ hearingId, roomId }: { hearingId: string; roomId: string }) =>
+      (await api.get(`/hearings/${hearingId}/rooms/${roomId}/join`)).data as { joinUrl: string },
+    onSuccess: (data) => { window.open(data.joinUrl, '_blank', 'noopener'); },
   });
 
   return (
@@ -67,7 +75,22 @@ export function CalendarTab({ caseId, isTribunal }: { caseId: string; isTribunal
             <div key={h.id} className="card" style={{ background: 'var(--bg-raised)' }}>
               <strong>{h.title}</strong>
               <p className="field__hint">{new Date(h.scheduledStart).toLocaleString()} · <span className="badge">{h.status}</span></p>
-              <div className="arb-card__fields">{h.rooms.map((r) => <span key={r.kind} className="badge badge--gold">{r.name}</span>)}</div>
+              <div className="arb-card__fields">
+                {h.rooms.map((r) => r.canJoin && h.status !== 'CANCELLED' ? (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className="badge badge--gold"
+                    style={{ cursor: 'pointer', border: 'none' }}
+                    disabled={joinRoom.isPending}
+                    onClick={() => joinRoom.mutate({ hearingId: h.id, roomId: r.id })}
+                  >
+                    Join {r.name} →
+                  </button>
+                ) : (
+                  <span key={r.id} className="badge">{r.name}</span>
+                ))}
+              </div>
             </div>
           )) : <p className="muted">No hearings scheduled.</p>}
         </div>

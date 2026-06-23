@@ -71,8 +71,16 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   `AES256`) and a SHA-256 integrity checksum. Downloads stay brokered by the API (access re-check +
   audit), so no raw bucket URL is ever exposed. `GET /api/health` reports `storage: up|down`
   (it performs a bucket reachability check).
-- **Email/payments/video** run on development adapters (`console`/`manual`/`placeholder`). Wire
-  real providers via the documented env vars before going live.
+- **Video hearings**: set `VIDEO_DRIVER=daily` and `DAILY_API_KEY` to provision real
+  [Daily.co](https://daily.co) rooms. Rooms are created **private** and auto-expire after the
+  hearing; nobody can join with the bare URL. Join links are minted per participant at join time
+  (`GET /api/hearings/:id/rooms/:roomId/join`) — short-lived meeting tokens, with the tribunal
+  granted owner/host privileges — and every issuance is audit-logged. Room visibility is
+  role-based (the tribunal-only and witness rooms are never exposed to the wrong party). The
+  list endpoint never returns raw join URLs. `GET /api/health` reports `video: up|down`.
+- **Email/payments** run on `resend`/`manual`. Wire real providers via the documented env vars
+  before going live (payments intentionally remain manual pending the escrow/client-funds and
+  AML/KYC decisions — see the readiness assessment).
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real
   tenant.
 - **Free instances sleep**; the first request after idle cold-starts (slow) — not a fault.

@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../providers/storage/storage.service';
+import { VideoService } from '../providers/video/video.service';
 
 @ApiTags('health')
 @Controller('health')
@@ -9,6 +10,7 @@ export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly video: VideoService,
   ) {}
 
   @Get()
@@ -20,9 +22,12 @@ export class HealthController {
     } catch {
       db = 'down';
     }
-    // Verifies the object store is reachable (S3 bucket exists / local is always ok).
-    const storage = (await this.storage.healthCheck()) ? 'up' : 'down';
-    const status = db === 'up' && storage === 'up' ? 'ok' : 'degraded';
-    return { status, db, storage, time: new Date().toISOString() };
+    // Reachability of external providers (local/placeholder are always "up").
+    const [storage, video] = await Promise.all([
+      this.storage.healthCheck().then((ok) => (ok ? 'up' : 'down')),
+      this.video.healthCheck().then((ok) => (ok ? 'up' : 'down')),
+    ]);
+    const status = db === 'up' && storage === 'up' && video === 'up' ? 'ok' : 'degraded';
+    return { status, db, storage, video, time: new Date().toISOString() };
   }
 }

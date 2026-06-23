@@ -51,13 +51,22 @@ P0.2  CLIENT-FUNDS CUSTODY / ESCROW                  [GAP][LEGAL]    Effort: L
   trust-account rules). A real panel holds advances on costs — this is core, not
   optional, and it is half engineering, half regulated-entity setup.
 
-P0.3  REAL ONLINE HEARINGS                                  [STUB]   Effort: M
-  Now: apps/api/src/providers/video/video.service.ts returns a fake
-  https://hearings.local/placeholder/... URL. Rooms are modelled (tribunal /
-  party / witness / breakout) but never created on a real platform.
-  Needed: integrate Zoom/Teams/Google Meet (or a sovereign equivalent) —
-  room provisioning, waiting rooms, recording + retention, access tokens scoped
-  to participants, and join-audit. Hearings are a defining feature of the panel.
+P0.3  REAL ONLINE HEARINGS                                  [DONE]   Effort: M
+  DONE (2026-06-23): video.service.ts now has a real `daily` provider (Daily.co
+  REST, no SDK) alongside `placeholder`. Hearing scheduling provisions the full
+  room set (main / tribunal / party-waiting / witness-waiting / breakout) as
+  PRIVATE rooms that auto-expire after the hearing. Join links are minted
+  per-participant at join time (short-lived meeting tokens; tribunal gets owner
+  privileges) via GET /hearings/:id/rooms/:roomId/join — never embedded in the
+  hearings list — and every issuance is audit-logged (HEARING_LINK_ACCESS).
+  Room visibility is role-based (tribunal-only room is tribunal-only; witness
+  room excludes parties; breakout excludes staff). Hearing update, cancel (tears
+  down provider rooms), and attendance join/leave are all audited. Frontend has a
+  per-room "Join" action. GET /api/health reports video up/down. Tests cover
+  unauthorized access, role-based room visibility, and provider failure handling.
+  Configurable via VIDEO_DRIVER / DAILY_API_KEY.
+  Remaining (lower priority, P2): recording storage + retention wiring, and
+  adding a second provider (Whereby/Zoom) if a sovereign/region option is needed.
 
 P0.4  DURABLE / SECURE STORAGE                              [DONE]   Effort: S–M
   DONE (2026-06-23): storage.service.ts now has a real `s3` driver (AWS SDK v3)
@@ -191,7 +200,10 @@ All from docs/LEGAL_REVIEW_CHECKLIST.md — every Blocker must clear before go-l
 6. SUGGESTED ORDER OF WORK
 --------------------------------------------------------------------------------
   Step 1 (engineering, parallelizable):
-     P0.4 storage(S3)  →  P0.1 payments  →  P0.3 video  →  P0.5 KYC/AML stub→real.
+     P0.4 storage(S3) [DONE]  →  P0.3 video [DONE]  →  P0.5 KYC/AML stub→real.
+     P0.1 payments is intentionally ON HOLD until the escrow/client-funds model,
+     refund rules, AML/KYC treatment, and legal accounting position are decided
+     (P0.2 + P3). Do not start Stripe integration before then.
   Step 2 (content + governance, start NOW, runs long):
      P1.1 finish + counsel-review rules;  P1.2 recruit a real panel;
      kick off P3 legal checklist with counsel (these have the longest lead time).

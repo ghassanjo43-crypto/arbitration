@@ -46,7 +46,13 @@ export interface AppConfig {
     adminLoginNotificationEmail?: string;
   };
   payment: { driver: 'manual' | 'stripe' };
-  video: { driver: 'placeholder' | 'zoom' | 'teams' | 'meet' };
+  video: {
+    driver: 'placeholder' | 'daily';
+    daily: {
+      apiKey?: string;
+      apiUrl: string;
+    };
+  };
   redisUrl: string;
 }
 
@@ -106,6 +112,12 @@ export default (): AppConfig => ({
     adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
   },
   payment: { driver: (process.env.PAYMENT_DRIVER as 'manual' | 'stripe') ?? 'manual' },
-  video: { driver: (process.env.VIDEO_DRIVER as 'placeholder') ?? 'placeholder' },
+  video: {
+    driver: (process.env.VIDEO_DRIVER as 'placeholder' | 'daily') ?? 'placeholder',
+    daily: {
+      apiKey: process.env.DAILY_API_KEY || undefined,
+      apiUrl: process.env.DAILY_API_URL ?? 'https://api.daily.co/v1',
+    },
+  },
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
 });
