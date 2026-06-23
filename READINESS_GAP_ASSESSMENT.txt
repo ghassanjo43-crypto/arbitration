@@ -191,10 +191,28 @@ P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS  [DONE]   Effort: M
 3. PRIORITY 2 — OPERATIONAL READINESS (needed to run it safely)
 --------------------------------------------------------------------------------
 
-P2.1  PRODUCTION DEPLOYMENT, BACKUP & DR                    [GAP]    Effort: M
-  Needed: managed Postgres with PITR backups, storage backups, secrets
-  management (PASSWORD_PEPPER / signing keys rotated and vaulted), restore drills,
-  defined region (data-residency, checklist item 12), and an uptime/SLA posture.
+P2.1  PRODUCTION DEPLOYMENT, BACKUP & DR        [PLAN+TOOLING DONE]  Effort: M
+  DONE (2026-06-23): backup/DR strategy + runbooks documented and a safe,
+  read-only verification tool added.
+   - docs/BACKUP_AND_DR.md: what must survive and where it lives (audit log +
+     email-delivery evidence are Postgres rows → DB backup; documents + award/
+     certificate PDFs are object-store binaries → storage backup); Postgres backup
+     requirements (automated + PITR + off-provider dump + migration-rollback
+     policy + restore testing) with a restore runbook; S3 bucket requirements
+     (versioning, lifecycle, encryption, access logging, cross-region replication,
+     block-public) with a restore runbook; a non-destructive staging restore-drill
+     guide; RPO/RTO + retention placeholders pending business/legal sign-off; an
+     app-level-vs-infra-level readiness split.
+   - `npm run verify:backup -w @gaap/api` (scripts/verify-backup-readiness.mjs):
+     read-only checks — DB reachable, latest migration applied, storage reachable,
+     a sample document object readable, restore procedure documented — and prints
+     the infra-only items it cannot verify. Exits non-zero on critical failure.
+  Remaining (INFRA/provider config — cannot be done in code): enable Render
+  Postgres automated backups + PITR, configure the S3 bucket (versioning/lifecycle/
+  encryption/access-logging/replication), vault + rotate secrets (PASSWORD_PEPPER/
+  signing keys), run the first staging restore drill and record RTO, and fix the
+  data-residency region (checklist item 12). RPO/RTO values need business/legal
+  approval. Observability/SLA posture tracked separately in P2.2.
 
 P2.2  OBSERVABILITY & INCIDENT RESPONSE                     [GAP]    Effort: S–M
   Now: correlation IDs + rate limiting + global exception filter exist.
