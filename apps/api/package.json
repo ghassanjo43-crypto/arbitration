@@ -17,6 +17,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
+    "db:seed:showcase": "ts-node --transpile-only prisma/seed-showcase-standalone.ts",
     "db:seed:topup": "ts-node --transpile-only prisma/seed-rules-topup.ts",
     "db:embedded": "node scripts/db-embedded.mjs"
   },

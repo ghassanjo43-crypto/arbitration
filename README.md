@@ -108,6 +108,31 @@ Password for all: `Password!2026`
 | Client       | client1@example.example |
 | Arbitrator   | arbitrator4@panel.example *(appointed to case GAAP-2026-000002)* |
 
+### Showcase scenario (`GAAP-2026-000010`)
+
+The seed includes a **flagship case that exercises every feature end to end**, so
+the app can be explored from all angles: a constituted **three-member tribunal**
+(chair + two co-arbitrators), appointment invitations in several states (accepted,
+declined with reason, one outstanding with a rule-driven response deadline + a sent
+reminder), conflict disclosures, a decided arbitrator challenge, **documents at
+three confidentiality levels**, ex-parte-guarded **messages**, met/open
+**deadlines**, two online **hearings** with provisioned rooms, an **invoice + two
+payments** (including a substitute payment), a signed & issued **FINAL award**,
+**compliance** screenings + an active hold, and a **DRAFT rule version (`3.0-draft`)
+mid counsel-review** (so the Rules-review page's Activate gate is visibly blocked).
+
+It is loaded automatically by `db:seed`/`db:reset`. To add it to an **already-seeded**
+database without wiping anything (also applies any pending migrations first):
+
+```bash
+npm run db:migrate:deploy -w @gaap/api     # apply any pending migrations (non-destructive)
+npm run db:seed:showcase  -w @gaap/api     # additive; skips if the case already exists
+```
+
+Best viewpoints: sign in as **registrar@** (Tribunal-tab management actions, finance),
+**council@** (Rules review at `/app/admin/rules`, decide challenges), or
+**arbitrator6@panel.example** (chair — deliberations, draft award, generate the award PDF).
+
 ### Resetting a login password
 
 Passwords are hashed with argon2 plus a server-side **pepper** (`PASSWORD_PEPPER`).

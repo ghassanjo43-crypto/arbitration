@@ -25,6 +25,7 @@ import {
 import { createHash, randomUUID } from 'node:crypto';
 import { computeDeadline } from '../src/deadlines/deadline-engine';
 import { allocate, PartyShareInput } from '../src/fees/allocation-engine';
+import { seedShowcase } from './seed-showcase';
 import * as argon2 from 'argon2';
 
 const prisma = new PrismaClient();
@@ -89,7 +90,7 @@ async function main() {
   // ---- Staff ----
   const superAdmin = await createUser({ email: 'superadmin@arbitration.example', first: 'Sasha', last: 'Admin', roles: [Role.SUPER_ADMIN] });
   const registrar = await createUser({ email: 'registrar@arbitration.example', first: 'Robin', last: 'Registry', roles: [Role.REGISTRAR] });
-  await createUser({ email: 'council@arbitration.example', first: 'Dr. Noor', last: 'Specialist', roles: [Role.COUNCIL_MEMBER] });
+  const council = await createUser({ email: 'council@arbitration.example', first: 'Dr. Noor', last: 'Specialist', roles: [Role.COUNCIL_MEMBER] });
   await createUser({ email: 'admin@arbitration.example', first: 'Alex', last: 'Operator', roles: [Role.ADMIN] });
 
   // ---- Lawyers ----
@@ -142,8 +143,8 @@ async function main() {
     arbitrators.push({ user: u, profile });
   }
 
-  // ---- Rules engine: rule set, versions (v1 superseded, v2 active), calendar ----
-  const { v1, v2, calendar } = await seedRules();
+  // ---- Rules engine: rule set, versions (v1 superseded, v2 active, v3 draft), calendar ----
+  const { v1, v2, v3, calendar } = await seedRules();
 
   // ---- Sample cases ----
   const case1 = await seedCase({
@@ -277,7 +278,13 @@ async function main() {
     where: { key: 'fees.currency.default' }, update: {}, create: { key: 'fees.currency.default', value: JSON.stringify('USD') },
   });
 
+  // ---- Flagship showcase case exercising every feature end to end ----
+  const showcase = await seedShowcase({
+    prisma, registrar, council, clients, lawyers, arbitrators, v2Id: v2.id, v3Id: v3.id,
+  });
+
   console.log('Seed complete.');
+  console.log(`  Showcase case: ${showcase.reference} (fully populated — tribunal, hearing, award, finance, compliance)`);
   console.log(`  Super admin: superadmin@arbitration.example / ${PASSWORD}`);
   console.log(`  Registrar:   registrar@arbitration.example / ${PASSWORD}`);
   console.log(`  Lawyer:      lawyer1@firm.example / ${PASSWORD}`);
@@ -509,6 +516,12 @@ async function seedRules() {
     changeSummary: 'Response period harmonised to 30 days; electronic-service evidence provisions strengthened.',
     changeSummaryAr: 'توحيد مهلة الرد إلى 30 يوماً وتعزيز أحكام إثبات الإعلان الإلكتروني.', responseDays: 30,
   });
+  // A DRAFT amendment under counsel review (drives the Rules-review admin page).
+  const v3 = await buildVersion(ruleSet.id, '3.0-draft', RuleVersionStatus.DRAFT, {
+    effectiveDate: new Date('2026-07-01T00:00:00Z'),
+    changeSummary: 'Draft amendment: expedited-track timelines and revised default-appointment wording — under counsel review.',
+    changeSummaryAr: 'تعديل مشروع: مهل المسار المعجّل وصياغة منقّحة للتعيين التلقائي — قيد مراجعة المحامي.', responseDays: 30,
+  });
 
   const calendar = await prisma.holidayCalendar.create({
     data: {
@@ -524,7 +537,7 @@ async function seedRules() {
     },
   });
 
-  return { ruleSet, v1, v2, calendar };
+  return { ruleSet, v1, v2, v3, calendar };
 }
 
 async function seedFeeSchedule() {
@@ -678,7 +691,7 @@ function slugKey(s: string): string {
   return s.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
 }
 
-export { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow, backfillEngineGraph };
+export { prisma, seedRules, seedAcceptance, seedFeeSchedule, seedDepositWorkflow, backfillEngineGraph, buildVersion };
 
 if (require.main === module) {
   main()
