@@ -32,6 +32,7 @@ import { InterimModule } from './interim/interim.module';
 import { CaseTracksModule } from './casetracks/casetracks.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -79,6 +80,7 @@ import { HealthController } from './health/health.controller';
     CaseTracksModule,
     DashboardsModule,
     NotificationsModule,
+    ComplianceModule,
   ],
   controllers: [HealthController],
   providers: [

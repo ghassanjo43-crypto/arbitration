@@ -4,6 +4,7 @@ import {
   CaseRole,
   CaseStage,
   ChallengeStatus,
+  ScreeningSubjectType,
   TribunalComposition,
   TribunalRole,
 } from '@prisma/client';
@@ -11,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ComplianceService } from '../compliance/compliance.service';
 import { AuthUser } from '../auth/types';
 import { ConflictDisclosureDto, DecideChallengeDto, InviteArbitratorDto, RaiseChallengeDto, RespondToInvitationDto } from './dto';
 
@@ -40,6 +42,7 @@ export class AppointmentsService {
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
     private readonly notifications: NotificationsService,
+    private readonly compliance: ComplianceService,
   ) {}
 
   /** Registrar action (guarded by APPOINTMENT_MANAGE at the controller). */
@@ -200,6 +203,16 @@ export class AppointmentsService {
       entityId: invitationId,
       caseId: invitation.caseId,
       metadata: { role: invitation.proposedRole },
+    });
+
+    // Screen the accepting arbitrator (best-effort; a match raises a hold and
+    // routes to compliance review without altering the acceptance record).
+    const profile = await this.prisma.userProfile.findUnique({ where: { userId: user.id }, select: { displayName: true } });
+    await this.compliance.rescreenForEvent({
+      event: 'ARBITRATOR_APPOINTMENT',
+      caseId: invitation.caseId,
+      requestedById: user.id,
+      subjects: [{ subjectType: ScreeningSubjectType.ARBITRATOR, subjectId: user.id, subjectName: profile?.displayName ?? user.email, caseId: invitation.caseId }],
     });
     return { accepted: true, caseId: invitation.caseId, caseRole };
   }

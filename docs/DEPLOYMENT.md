@@ -78,9 +78,19 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   granted owner/host privileges — and every issuance is audit-logged. Room visibility is
   role-based (the tribunal-only and witness rooms are never exposed to the wrong party). The
   list endpoint never returns raw join URLs. `GET /api/health` reports `video: up|down`.
+- **Compliance screening (KYC/AML/sanctions)**: set `SCREENING_DRIVER=http` with
+  `SCREENING_API_URL`/`SCREENING_API_KEY` to screen against a real vendor (OpenSanctions,
+  Dilisense, ComplyAdvantage, …) behind a normalising endpoint; the default `mock` driver is
+  deterministic and credential-free for dev/test. Parties are screened on case registration and
+  on party addition, and arbitrators on appointment acceptance; a possible match or a provider
+  failure **fails closed** — it raises a compliance hold that blocks the case from advancing until
+  a reviewer (COMPLIANCE_REVIEW) approves/rejects/escalates it at `/api/compliance/*`. The system
+  flags and routes risk; it never makes the legal call automatically. `GET /api/health` reports
+  `screening: up|down`. Run `POST /api/compliance/screenings/expire-sweep` (or schedule it) to
+  expire stale screenings.
 - **Email/payments** run on `resend`/`manual`. Wire real providers via the documented env vars
   before going live (payments intentionally remain manual pending the escrow/client-funds and
-  AML/KYC decisions — see the readiness assessment).
+  AML/KYC accounting decisions — see the readiness assessment).
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real
   tenant.
 - **Free instances sleep**; the first request after idle cold-starts (slow) — not a fault.

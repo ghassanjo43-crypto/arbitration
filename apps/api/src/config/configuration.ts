@@ -53,6 +53,14 @@ export interface AppConfig {
       apiUrl: string;
     };
   };
+  screening: {
+    driver: 'mock' | 'http';
+    apiUrl?: string;
+    apiKey?: string;
+    mockBlockTokens: string;
+    /** Days a CLEAR screening stays valid before it must be re-run. */
+    validityDays: number;
+  };
   redisUrl: string;
 }
 
@@ -118,6 +126,13 @@ export default (): AppConfig => ({
       apiKey: process.env.DAILY_API_KEY || undefined,
       apiUrl: process.env.DAILY_API_URL ?? 'https://api.daily.co/v1',
     },
+  },
+  screening: {
+    driver: (process.env.SCREENING_DRIVER as 'mock' | 'http') ?? 'mock',
+    apiUrl: process.env.SCREENING_API_URL || undefined,
+    apiKey: process.env.SCREENING_API_KEY || undefined,
+    mockBlockTokens: process.env.SCREENING_MOCK_BLOCK_TOKENS ?? 'BLOCKED,SANCTION,OFAC',
+    validityDays: parseInt(process.env.SCREENING_VALIDITY_DAYS ?? '365', 10),
   },
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
 });

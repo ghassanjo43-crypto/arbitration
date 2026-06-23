@@ -3,6 +3,7 @@ import { CaseStage } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ComplianceService } from '../compliance/compliance.service';
 import { AuthUser } from '../auth/types';
 
 /** Permitted forward transitions the registrar may apply administratively. */
@@ -25,6 +26,7 @@ export class RegistryService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly compliance: ComplianceService,
   ) {}
 
   /** The registrar's queue: cases needing administrative attention. */
@@ -57,6 +59,9 @@ export class RegistryService {
     if (!allowed.includes(toStage)) {
       throw new BadRequestException(`Transition ${theCase.stage} → ${toStage} is not permitted for a registrar.`);
     }
+    // A case with an unresolved compliance hold cannot be advanced until a
+    // reviewer clears it (sanctions/AML risk must not progress silently).
+    await this.compliance.assertCaseClearedToProceed(caseId);
     await this.prisma.$transaction([
       this.prisma.case.update({
         where: { id: caseId },
@@ -72,6 +77,12 @@ export class RegistryService {
       caseId,
       metadata: { from: theCase.stage, to: toStage, note },
     });
+
+    // On registration, screen the parties (sanctions/AML). A possible match
+    // raises a hold that blocks the next stage transition until reviewed.
+    if (toStage === CaseStage.CASE_REGISTERED) {
+      await this.compliance.rescreenForEvent({ event: 'CASE_REGISTERED', caseId, requestedById: actor.id });
+    }
 
     // Notify the parties on the key administrative milestones.
     const key = toStage === CaseStage.CASE_REGISTERED ? 'CASE_REGISTERED'

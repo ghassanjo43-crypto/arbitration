@@ -80,12 +80,28 @@ P0.4  DURABLE / SECURE STORAGE                              [DONE]   Effort: S�
   Remaining (lower priority, P2): object versioning, lifecycle/retention rules,
   and bucket backup are configured at the bucket level (infra), not in app code.
 
-P0.5  IDENTITY / KYC / AML / SANCTIONS SCREENING     [STUB][LEGAL]   Effort: M
-  Now: IdentityVerification and ComplianceCheck tables exist; the screening
-  integration is a stub (checklist item 11).
-  Needed: a KYC/IDV provider and sanctions/PEP screening for parties,
-  representatives, and arbitrators, with a documented review workflow. Required
-  for onboarding real money and real parties in most jurisdictions.
+P0.5  IDENTITY / KYC / AML / SANCTIONS SCREENING          [DONE]   Effort: M
+  DONE (2026-06-23): a compliance-screening FRAMEWORK (flags/holds/routes risk;
+  never makes the legal conclusion automatically). New ScreeningCheck +
+  ComplianceHold models (migration 20260623100000_compliance_screening).
+  Provider abstraction under providers/screening: `mock` (deterministic,
+  credential-free) + `http` (real vendor — OpenSanctions/Dilisense/ComplyAdvantage
+  behind a normalising endpoint). Statuses: NOT_SCREENED / PENDING / CLEAR /
+  POSSIBLE_MATCH / FAILED / EXPIRED / MANUAL_REVIEW. Subjects: party, company,
+  lawyer, arbitrator, individual, beneficial owner. Re-screening triggers wired
+  into case registration, party addition, and arbitrator appointment; periodic
+  expiry sweep + validity window. Fail-closed: a possible match or provider error
+  raises an ACTIVE hold that BLOCKS the case from advancing (registry transition
+  enforces assertCaseClearedToProceed) until a reviewer (COMPLIANCE_REVIEW)
+  approves/rejects/escalates. Review APPROVED releases holds; REJECTED/ESCALATED
+  keep them. Every request/result/hold/override/release is audit-logged. Only the
+  minimal identifying data needed to screen is stored (no raw provider payload).
+  Admin API under /api/compliance/*. GET /api/health reports screening up/down.
+  Tests cover clear, possible match, failed provider, manual override, expiry,
+  and hold enforcement. Configurable via SCREENING_DRIVER / SCREENING_API_*.
+  Remaining (P3/legal): selecting the actual KYC/IDV + sanctions vendor and
+  confirming the AML programme and identity-document handling with counsel
+  (checklist item 11). Payment-initiation re-screen lands with payments (blocked).
 
 
 --------------------------------------------------------------------------------
@@ -199,11 +215,13 @@ All from docs/LEGAL_REVIEW_CHECKLIST.md — every Blocker must clear before go-l
 --------------------------------------------------------------------------------
 6. SUGGESTED ORDER OF WORK
 --------------------------------------------------------------------------------
-  Step 1 (engineering, parallelizable):
-     P0.4 storage(S3) [DONE]  →  P0.3 video [DONE]  →  P0.5 KYC/AML stub→real.
-     P0.1 payments is intentionally ON HOLD until the escrow/client-funds model,
-     refund rules, AML/KYC treatment, and legal accounting position are decided
-     (P0.2 + P3). Do not start Stripe integration before then.
+  Step 1 (engineering) — COMPLETE except payments:
+     P0.4 storage(S3) [DONE]  ·  P0.3 video [DONE]  ·  P0.5 KYC/AML framework [DONE].
+     P0.1 payments remains ON HOLD until the escrow/client-funds model, refund
+     rules, AML/KYC accounting treatment, and legal accounting position are
+     decided (P0.2 + P3). Do not start Stripe integration before then.
+     NEXT: move to P1 — counsel-reviewed rules, real arbitrator-panel recruitment,
+     award/notice PDF generation, and appointment edge-case hardening.
   Step 2 (content + governance, start NOW, runs long):
      P1.1 finish + counsel-review rules;  P1.2 recruit a real panel;
      kick off P3 legal checklist with counsel (these have the longest lead time).

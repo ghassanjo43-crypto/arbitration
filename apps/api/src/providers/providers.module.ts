@@ -3,11 +3,12 @@ import { EmailService } from './email/email.service';
 import { StorageService } from './storage/storage.service';
 import { PaymentService } from './payment/payment.service';
 import { VideoService } from './video/video.service';
+import { ScreeningService } from './screening/screening.service';
 
 /** Development adapters for all external integrations live behind these interfaces. */
 @Global()
 @Module({
-  providers: [EmailService, StorageService, PaymentService, VideoService],
-  exports: [EmailService, StorageService, PaymentService, VideoService],
+  providers: [EmailService, StorageService, PaymentService, VideoService, ScreeningService],
+  exports: [EmailService, StorageService, PaymentService, VideoService, ScreeningService],
 })
 export class ProvidersModule {}

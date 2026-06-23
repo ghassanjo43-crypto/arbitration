@@ -1,9 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CaseRole, PartySide } from '@prisma/client';
 import { Permission } from '@gaap/shared';
+import { ScreeningSubjectType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
+import { ComplianceService } from '../compliance/compliance.service';
 import { AuthUser } from '../auth/types';
 import { AddRepresentativeDto, AddTeamMemberDto, UpsertPartyDto } from './dto';
 
@@ -15,6 +17,7 @@ export class PartiesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CaseAccessService,
+    private readonly compliance: ComplianceService,
   ) {}
 
   /** A party or that side's representative (or administering staff) may edit a side's details. */
@@ -31,6 +34,13 @@ export class PartiesService {
     await this.assertCanManageSide(user, caseId, dto.side);
     const party = await this.prisma.caseParty.create({ data: { caseId, ...dto } });
     await this.audit.record({ userId: user.id, action: 'PARTY_ADDED', entityType: 'CaseParty', entityId: party.id, caseId });
+    // Screen the new party (best-effort; a match raises a compliance hold).
+    await this.compliance.rescreenForEvent({
+      event: 'PARTY_ADDED',
+      caseId,
+      requestedById: user.id,
+      subjects: [{ subjectType: ScreeningSubjectType.PARTY, subjectId: party.id, subjectName: party.legalName, caseId, country: party.country ?? party.nationality ?? undefined }],
+    });
     return party;
   }
 

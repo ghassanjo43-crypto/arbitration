@@ -1886,6 +1886,106 @@ model IdentityVerification {
   updatedAt DateTime           @updatedAt
 }
 
+// ============================================================================
+// COMPLIANCE SCREENING (KYC / AML / SANCTIONS)
+// A screening FRAMEWORK: it flags, holds and routes risk for human review. It
+// does NOT make legal conclusions automatically. A possible match or provider
+// failure raises a manual-review hold that an authorised reviewer must clear.
+// Subject references are intentionally soft (no FK) so the same record can point
+// at a party, company, lawyer, arbitrator, user or beneficial owner; only the
+// minimal identifying data needed to screen and to audit is stored.
+// ============================================================================
+
+enum ScreeningSubjectType {
+  PARTY
+  COMPANY
+  LAWYER
+  ARBITRATOR
+  INDIVIDUAL
+  BENEFICIAL_OWNER
+}
+
+enum ScreeningType {
+  SANCTIONS
+  PEP
+  ADVERSE_MEDIA
+  AML
+  IDENTITY
+}
+
+enum ScreeningStatus {
+  NOT_SCREENED
+  PENDING
+  CLEAR
+  POSSIBLE_MATCH
+  FAILED
+  EXPIRED
+  MANUAL_REVIEW
+}
+
+enum ScreeningDecision {
+  APPROVED
+  REJECTED
+  ESCALATED
+}
+
+enum ComplianceHoldStatus {
+  ACTIVE
+  RELEASED
+}
+
+model ScreeningCheck {
+  id            String               @id @default(uuid())
+  subjectType   ScreeningSubjectType
+  subjectId     String? // soft reference to the screened entity
+  subjectName   String // minimal identifying data actually screened
+  caseId        String? // soft reference; screenings may be case-scoped or not
+  screeningType ScreeningType
+  status        ScreeningStatus      @default(PENDING)
+  provider      String               @default("mock")
+  providerRef   String?
+  riskScore     Int?
+  matchCount    Int                  @default(0)
+  resultSummary String? // short human summary, NOT the full raw provider payload
+  triggerEvent  String? // what caused this screening (filing, party add, …)
+  requestedById String?
+  screenedAt    DateTime?
+  expiresAt     DateTime?
+  // Manual review outcome
+  reviewedById   String?
+  reviewDecision ScreeningDecision?
+  reviewNote     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  holds ComplianceHold[]
+
+  @@index([subjectType, subjectId])
+  @@index([caseId])
+  @@index([status])
+}
+
+model ComplianceHold {
+  id               String               @id @default(uuid())
+  caseId           String? // a case-level hold freezes the case from proceeding
+  subjectType      ScreeningSubjectType
+  subjectId        String?
+  reason           String
+  status           ComplianceHoldStatus @default(ACTIVE)
+  screeningCheckId String?
+  screeningCheck   ScreeningCheck?      @relation(fields: [screeningCheckId], references: [id], onDelete: SetNull)
+  createdById      String?
+  releasedById     String?
+  releaseNote      String?
+  releasedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([caseId])
+  @@index([status])
+}
+
 model SystemSetting {
   id        String   @id @default(uuid())
   key       String   @unique
