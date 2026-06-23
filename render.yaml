@@ -20,6 +20,9 @@ services:
     runtime: node
     plan: free
     region: oregon
+    # Liveness only (no external deps) so a transient provider blip does not
+    # trigger a restart. Point UPTIME monitoring at /api/readiness (deep checks,
+    # returns 503 when not ready). See docs/INCIDENT_RESPONSE.md.
     healthCheckPath: /api/health
     buildCommand: >-
       npm ci &&

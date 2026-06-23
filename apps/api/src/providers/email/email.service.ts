@@ -71,6 +71,13 @@ export class EmailService {
     return this.driver;
   }
 
+  /** Config-usability check for readiness: console always ok; resend needs a key. */
+  healthCheck(): boolean {
+    if (this.driver === 'resend') return !!this.resend;
+    if (this.driver === 'console') return true;
+    return false;
+  }
+
   async send(message: EmailMessage): Promise<EmailSendResult> {
     switch (this.driver) {
       case 'console': {

@@ -21,4 +21,5 @@
 | [WORKFLOW.md](WORKFLOW.md) | Filing-wizard / earlier workflow notes |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Build, environment, Render/Docker deployment |
 | [BACKUP_AND_DR.md](BACKUP_AND_DR.md) | Backup/disaster-recovery strategy, runbooks, restore drill, RPO/RTO, verification tooling |
+| [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) | Observability (correlation ids, readiness), monitoring, SEV levels, incident runbooks, evidence preservation |
 | [LEGAL_REVIEW_CHECKLIST.md](LEGAL_REVIEW_CHECKLIST.md) | **Matters Requiring External Legal Review** (launch gate) |

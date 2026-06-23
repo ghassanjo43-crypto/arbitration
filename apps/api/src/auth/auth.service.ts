@@ -265,14 +265,24 @@ export class AuthService {
       const maxFailures = this.config.get<number>('security.maxFailedLogins') ?? 5;
       const lockMinutes = this.config.get<number>('security.accountLockMinutes') ?? 15;
       const count = user.failedLoginCount + 1;
+      const nowLocked = count >= maxFailures;
       await this.prisma.user.update({
         where: { id: user.id },
         data: {
           failedLoginCount: count,
-          lockedUntil: count >= maxFailures ? new Date(Date.now() + lockMinutes * 60000) : null,
+          lockedUntil: nowLocked ? new Date(Date.now() + lockMinutes * 60000) : null,
         },
       });
       await recordFailure('FAILED');
+      // Crossing the lockout threshold is an operational/security event worth a
+      // durable audit row (access-integrity signal for monitoring).
+      if (nowLocked) {
+        await this.audit.record({
+          userId: user.id, action: 'OPERATIONAL_FAILURE', entityType: 'auth',
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+          metadata: { severity: 'SEV2', detail: 'account locked after repeated failed logins', failedLoginCount: count },
+        }).catch(() => undefined);
+      }
       throw new UnauthorizedException('Invalid credentials.');
     }
 

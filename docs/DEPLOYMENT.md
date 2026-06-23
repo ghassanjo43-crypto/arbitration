@@ -107,6 +107,16 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   /api/admin/email-deliveries/retry-sweep`, or schedule it); permanent failures are never silently
   retried. Delivery evidence is visible per case in the workspace **Delivery** tab
   (`GET /api/cases/:id/email-deliveries`, registry/tribunal only).
+- **Observability & monitoring**: every request carries a correlation id
+  (`X-Correlation-Id`, reused from inbound or generated) that appears in the structured request
+  log and the safe error envelope; 5xx never leak internals. **Liveness** is `GET /api/health`
+  (no dependency checks — the Render `healthCheckPath`, so a provider blip won't restart the
+  service). **Readiness** is `GET /api/readiness` — a machine-readable deep check of
+  `db, migrations, storage, video, email, screening` that returns **503** when not ready; **point
+  uptime monitoring here**. Critical failures (storage/email/video/screening/PDF/deadline/auth)
+  and account lockouts record an `OPERATIONAL_FAILURE` audit event. Recommended alerts, provider
+  dashboards and the on-call **incident-response runbook** (with SEV1–3 levels and evidence-
+  preservation steps) are in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md).
 - **Payments** run on `manual`. Payments intentionally remain manual pending the escrow/
   client-funds and AML/KYC accounting decisions — see the readiness assessment.
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real

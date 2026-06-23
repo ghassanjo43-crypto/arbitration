@@ -6,7 +6,6 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from './common/http-exception.filter';
 
 async function bootstrap(): Promise<void> {
   // rawBody is captured so provider webhook signatures can be verified against
@@ -24,7 +23,9 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
-  app.useGlobalFilters(new AllExceptionsFilter());
+  // The global exception filter + request-logging interceptor + correlation-id
+  // middleware are registered via DI in AppModule (APP_FILTER / APP_INTERCEPTOR /
+  // NestModule.configure) so they can inject ObservabilityService.
 
   app.useGlobalPipes(
     new ValidationPipe({

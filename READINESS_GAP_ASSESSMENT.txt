@@ -214,10 +214,30 @@ P2.1  PRODUCTION DEPLOYMENT, BACKUP & DR        [PLAN+TOOLING DONE]  Effort: M
   data-residency region (checklist item 12). RPO/RTO values need business/legal
   approval. Observability/SLA posture tracked separately in P2.2.
 
-P2.2  OBSERVABILITY & INCIDENT RESPONSE                     [GAP]    Effort: S–M
-  Now: correlation IDs + rate limiting + global exception filter exist.
-  Needed: centralized logging, metrics, alerting, error tracking, and a documented
-  incident/breach-response runbook (breach notification ties to privacy law).
+P2.2  OBSERVABILITY & INCIDENT RESPONSE         [APP DONE / INFRA NEXT] Effort: S–M
+  DONE (2026-06-23): the in-app observability + response foundation.
+   - Per-request correlation id (reuses inbound X-Correlation-Id/X-Request-Id or
+     generates one; echoed on the response header) flows through a structured
+     request log (method/path/status/durationMs/userId/roles/caseId/correlationId
+     — metadata only, no bodies/secrets) and the exception filter (same id on the
+     error body). Filter is now DI-aware (APP_FILTER).
+   - 5xx are logged server-side only and never leak internals; each records an
+     audit-friendly OPERATIONAL_FAILURE event tagged by component (storage/video/
+     pdf/email/screening/deadline/auth/api), auth 5xx escalated SEV1. Account
+     lockout also records an operational event.
+   - Liveness GET /api/health (no deps; Render healthCheckPath) vs deep readiness
+     GET /api/readiness (db/migrations/storage/video/email/screening) returning a
+     machine-readable body + 503 when not ready (for uptime monitoring).
+   - docs/INCIDENT_RESPONSE.md: monitoring recommendations, SEV1–3 levels +
+     response/escalation, runbooks for the 7 incident classes (email/storage/DB/
+     video outage, suspected unauthorized access, failed award/doc generation,
+     failed migration/deploy), and evidence-to-preserve guidance. DEPLOYMENT.md +
+     render.yaml updated. Tests cover readiness output, provider-down states,
+     correlation-id propagation, and safe error responses.
+  Remaining (INFRA, not code): wire centralized log aggregation + metrics +
+  alerting + error tracking (e.g. ship logs, alert on OPERATIONAL_FAILURE / 5xx /
+  readiness 503), configure uptime monitoring on /readiness, and have counsel
+  confirm the breach-notification procedure for each seat/privacy regime.
 
 P2.3  EMAIL DELIVERABILITY & NOTIFICATION HARDENING          [DONE]   Effort: S
   DONE (2026-06-23): a production-grade deliverability + service-evidence layer
