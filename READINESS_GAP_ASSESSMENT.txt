@@ -108,14 +108,24 @@ P0.5  IDENTITY / KYC / AML / SANCTIONS SCREENING          [DONE]   Effort: M
 2. PRIORITY 1 — SUBSTANTIVE PANEL COMPLETENESS (needed to be credible)
 --------------------------------------------------------------------------------
 
-P1.1  COUNSEL-REVIEWED RULE CONTENT                  [STUB][LEGAL]   Effort: L
+P1.1  COUNSEL-REVIEWED RULE CONTENT             [TOOLING DONE][LEGAL] Effort: L
   Now: the rules ENGINE is real (versioned RuleSet → Chapter → Rule, triggers →
   actions, idempotent, per-case pinning, overrides/exceptions — docs/RULES_ENGINE.md).
-  But the actual rule TEXT is seeded engineering drafts (seed.ts), and the
-  26-chapter procedural build is in progress on this branch (Phase A done).
-  Needed: finish authoring all chapters (EN + AR), then a full pass by qualified
-  arbitration counsel for each target seat. The engine is the skeleton; the
-  enforceable words are the product.
+  Counsel-review WORKFLOW done (2026-06-23): authoring/diff/versioning tooling so
+  counsel can review the rule text rule-by-rule and a draft cannot go live until
+  cleared (migration 20260623140000_rule_review_workflow). RuleReviewService +
+  /rules/admin/* (POLICY_MANAGE): clone a version to DRAFT, edit text (draft-only;
+  any edit re-opens review), per-rule diff (added/removed/changed), per-rule
+  decision (OK/CHANGE_REQUIRED/BLOCKER/PENDING with jurisdiction+note), and a
+  GATED activate that refuses until every rule is OK and then supersedes the prior
+  active version. Admin UI at /app/admin/rules. All actions audited. See
+  docs/RULES_REVIEW_WORKFLOW.md. Tests: rule-review.service.spec.ts (10),
+  AdminRulesReview.test.tsx (4).
+  Remaining (external, cannot be done in code): finish authoring all chapters
+  (EN + AR) and a full pass by qualified arbitration counsel for each target seat,
+  recorded through this workflow. The engine + tooling are the skeleton; the
+  enforceable words and counsel's sign-off are the product. Future eng: enforce
+  author≠approver separation of duties.
 
 P1.2  A REAL, VETTED ARBITRATOR PANEL                       [GAP]    Effort: L
   Now: the arbitrator directory is fake seed data.

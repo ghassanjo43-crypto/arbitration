@@ -9,6 +9,7 @@
 |----------|--------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Monorepo, modules, data model, authorization layers |
 | [RULES_ENGINE.md](RULES_ENGINE.md) | Operational trigger→action engine, acceptance, overrides/exceptions |
+| [RULES_REVIEW_WORKFLOW.md](RULES_REVIEW_WORKFLOW.md) | Counsel-review / authoring / diff / gated-activation workflow for the rule text |
 | [PROCEDURAL_WORKFLOW.md](PROCEDURAL_WORKFLOW.md) | End-to-end 20-step flow and authority boundaries |
 | [DEADLINE_CALCULATION.md](DEADLINE_CALCULATION.md) | Deadline engine, suspension/waiver/reminders, defaults |
 | [ELECTRONIC_SERVICE_PROTOCOL.md](ELECTRONIC_SERVICE_PROTOCOL.md) | Chapter 2 service, certificate, dispatch ≠ receipt |

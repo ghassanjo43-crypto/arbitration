@@ -1128,9 +1128,39 @@ model RuleSetVersion {
   rules       Rule[]
   caseLinks   CaseRuleSet[]
   acceptances CaseRuleAcceptance[]
+  reviewItems RuleReviewItem[]
 
   @@unique([ruleSetId, version])
   @@index([status])
+}
+
+// Counsel-review tracking for a rule within a DRAFT version. The platform does
+// not perform the legal review; it records counsel's decision per rule so a
+// draft cannot be activated until every rule is cleared (no PENDING/CHANGE_
+// REQUIRED/BLOCKER remains). Mirrors the LEGAL_REVIEW_CHECKLIST outcomes.
+enum RuleReviewStatus {
+  PENDING
+  OK
+  CHANGE_REQUIRED
+  BLOCKER
+}
+
+model RuleReviewItem {
+  id           String           @id @default(uuid())
+  versionId    String
+  version      RuleSetVersion   @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  ruleId       String
+  rule         Rule             @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  status       RuleReviewStatus @default(PENDING)
+  jurisdiction String? // the seat/jurisdiction the reviewer cleared it for
+  note         String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([versionId, ruleId])
+  @@index([versionId])
 }
 
 model RuleChapter {
@@ -1196,6 +1226,7 @@ model Rule {
   overrides            CaseRuleOverride[]
   exceptions           CaseRuleException[]
   ruleAuditLogs        RuleAuditLog[]
+  reviewItems          RuleReviewItem[]
 
   @@unique([versionId, number])
   @@index([versionId])

@@ -19,6 +19,13 @@ For each item, counsel should record: **Reviewed by / Date / Outcome
 (OK / Change required / Blocker) / Notes**. A launch sign-off requires every
 **Blocker** cleared and every **Change required** implemented and re-verified.
 
+> **Per-rule review is tracked in the platform.** The procedural rule *text* is
+> reviewed rule-by-rule through the counsel-review workflow
+> ([RULES_REVIEW_WORKFLOW.md](RULES_REVIEW_WORKFLOW.md)), which records the same
+> OK / Change required / Blocker outcomes and **prevents a rule-set version from
+> being activated until every rule is cleared**. This checklist covers the
+> institution-level matters that sit *alongside* that per-rule review.
+
 ---
 
 ## Matters Requiring External Legal Review
