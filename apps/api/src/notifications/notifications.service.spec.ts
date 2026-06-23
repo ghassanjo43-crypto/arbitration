@@ -15,13 +15,16 @@ describe('notification templates', () => {
   });
 
   it('covers the full spec notification set', () => {
-    // The spec enumerates 20 notifiable events.
-    expect(KEYS).toHaveLength(20);
+    // 20 base events + 6 appointment-hardening events (reminders, default
+    // appointment, chair nomination, vacancy, replacement, challenge decided).
+    expect(KEYS).toHaveLength(26);
     expect(KEYS).toEqual(expect.arrayContaining([
       'FILING_SUBMITTED', 'DEFICIENCY_NOTICE', 'CASE_REGISTERED', 'NOTICE_ISSUED', 'RESPONSE_DUE',
       'DEADLINE_REMINDER', 'DEADLINE_OVERDUE', 'APPOINTMENT_INVITATION', 'CONFLICT_DISCLOSURE', 'CHALLENGE',
       'TRIBUNAL_CONSTITUTED', 'PROCEDURAL_CONFERENCE', 'FILING_RECEIVED', 'HEARING_SCHEDULED', 'PAYMENT_REQUESTED',
       'PAYMENT_OVERDUE', 'SUBSTITUTE_PAYMENT_OPPORTUNITY', 'ORDER_ISSUED', 'AWARD_ISSUED', 'CORRECTION_DEADLINE',
+      'APPOINTMENT_REMINDER', 'DEFAULT_APPOINTMENT', 'CHAIR_NOMINATION', 'TRIBUNAL_VACANCY',
+      'ARBITRATOR_REPLACEMENT', 'CHALLENGE_DECIDED',
     ]));
   });
 

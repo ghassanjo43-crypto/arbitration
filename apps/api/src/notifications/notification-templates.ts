@@ -10,8 +10,14 @@ export type NotificationTemplateKey =
   | 'DEADLINE_REMINDER'
   | 'DEADLINE_OVERDUE'
   | 'APPOINTMENT_INVITATION'
+  | 'APPOINTMENT_REMINDER'
+  | 'DEFAULT_APPOINTMENT'
+  | 'CHAIR_NOMINATION'
+  | 'TRIBUNAL_VACANCY'
+  | 'ARBITRATOR_REPLACEMENT'
   | 'CONFLICT_DISCLOSURE'
   | 'CHALLENGE'
+  | 'CHALLENGE_DECIDED'
   | 'TRIBUNAL_CONSTITUTED'
   | 'PROCEDURAL_CONFERENCE'
   | 'FILING_RECEIVED'
@@ -83,6 +89,31 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateKey, Notificatio
     en: { subject: 'Appointment invitation — {{caseRef}}', body: 'You are invited to serve as {{role}} in case {{caseRef}}. Please complete your conflict disclosure and respond.' },
     ar: { subject: 'دعوة تعيين — {{caseRef}}', body: 'تتلقى دعوة للعمل بصفة {{role}} في القضية {{caseRef}}. يُرجى استكمال إفصاح تضارب المصالح والرد.' },
   },
+  APPOINTMENT_REMINDER: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Reminder: appointment response due — {{caseRef}}', body: 'A response to your appointment invitation in case {{caseRef}} is still outstanding. Please complete your conflict disclosure and respond by {{dueDate}}.' },
+    ar: { subject: 'تذكير: يلزم الرد على التعيين — {{caseRef}}', body: 'لا يزال الرد على دعوة تعيينك في القضية {{caseRef}} معلّقاً. يُرجى استكمال إفصاح تضارب المصالح والرد قبل {{dueDate}}.' },
+  },
+  DEFAULT_APPOINTMENT: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Default appointment made — {{caseRef}}', body: 'As the applicable time limit elapsed, the appointing authority has made a default appointment to the tribunal in case {{caseRef}}.' },
+    ar: { subject: 'تعيين بديل تلقائي — {{caseRef}}', body: 'نظراً لانقضاء المهلة المقررة، أجرت سلطة التعيين تعييناً تلقائياً في هيئة التحكيم في القضية {{caseRef}}.' },
+  },
+  CHAIR_NOMINATION: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Presiding arbitrator nomination — {{caseRef}}', body: 'A presiding arbitrator (chair) has been nominated in case {{caseRef}} and invited to accept.' },
+    ar: { subject: 'ترشيح رئيس الهيئة — {{caseRef}}', body: 'تم ترشيح رئيس لهيئة التحكيم في القضية {{caseRef}} ودعوته للقبول.' },
+  },
+  TRIBUNAL_VACANCY: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Tribunal vacancy — {{caseRef}}', body: 'A vacancy has arisen on the tribunal in case {{caseRef}} ({{reason}}). A replacement will be appointed under the applicable rules.' },
+    ar: { subject: 'شغور في الهيئة — {{caseRef}}', body: 'نشأ شغور في هيئة التحكيم في القضية {{caseRef}} ({{reason}}). وسيُعيَّن بديل وفق القواعد المعمول بها.' },
+  },
+  ARBITRATOR_REPLACEMENT: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Replacement arbitrator — {{caseRef}}', body: 'A replacement arbitrator has been invited to fill the vacancy on the tribunal in case {{caseRef}}.' },
+    ar: { subject: 'محكّم بديل — {{caseRef}}', body: 'تمت دعوة محكّم بديل لملء الشغور في هيئة التحكيم في القضية {{caseRef}}.' },
+  },
   CONFLICT_DISCLOSURE: {
     type: NotificationType.APPOINTMENT,
     en: { subject: 'Conflict disclosure — {{caseRef}}', body: 'A conflict disclosure has been filed in case {{caseRef}}. You may submit comments within the applicable period.' },
@@ -92,6 +123,11 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateKey, Notificatio
     type: NotificationType.APPOINTMENT,
     en: { subject: 'Arbitrator challenge — {{caseRef}}', body: 'A challenge to an arbitrator has been raised in case {{caseRef}}. The authorised authority will decide it.' },
     ar: { subject: 'طلب رد محكّم — {{caseRef}}', body: 'تم تقديم طلب رد محكّم في القضية {{caseRef}}. ستبتّ فيه الجهة المختصة.' },
+  },
+  CHALLENGE_DECIDED: {
+    type: NotificationType.APPOINTMENT,
+    en: { subject: 'Challenge decided — {{caseRef}}', body: 'The challenge to an arbitrator in case {{caseRef}} has been {{outcome}}. The appointment workflow will continue accordingly.' },
+    ar: { subject: 'صدر القرار في طلب الرد — {{caseRef}}', body: 'تم البتّ في طلب رد المحكّم في القضية {{caseRef}}: {{outcome}}. وستستمر إجراءات التعيين وفقاً لذلك.' },
   },
   TRIBUNAL_CONSTITUTED: {
     type: NotificationType.CASE_UPDATE,

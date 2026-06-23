@@ -649,15 +649,35 @@ enum TribunalRole {
   SECRETARY
 }
 
+enum TribunalMemberStatus {
+  ACTIVE
+  RESIGNED
+  REMOVED
+  INCAPACITATED
+  DECEASED
+  REPLACED
+}
+
+enum VacancyReason {
+  RESIGNATION
+  REMOVAL
+  INCAPACITY
+  DEATH
+  CHALLENGE_UPHELD
+}
+
 model TribunalMember {
-  id               String       @id @default(uuid())
+  id               String               @id @default(uuid())
   tribunalId       String
-  tribunal         Tribunal     @relation(fields: [tribunalId], references: [id], onDelete: Cascade)
+  tribunal         Tribunal             @relation(fields: [tribunalId], references: [id], onDelete: Cascade)
   arbitratorUserId String
   role             TribunalRole
   nominatedBy      PartySide?
+  status           TribunalMemberStatus @default(ACTIVE)
+  vacatedAt        DateTime?
+  vacancyReason    VacancyReason?
   acceptedAt       DateTime?
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime             @default(now())
 
   @@unique([tribunalId, arbitratorUserId])
 }
@@ -671,6 +691,12 @@ enum AppointmentStatus {
   EXPIRED
 }
 
+enum AppointmentMethod {
+  PARTY_NOMINATION
+  CO_ARBITRATOR_NOMINATION
+  INSTITUTION_DEFAULT
+}
+
 model AppointmentInvitation {
   id                    String            @id @default(uuid())
   caseId                String
@@ -679,9 +705,14 @@ model AppointmentInvitation {
   arbitrator            ArbitratorProfile @relation(fields: [arbitratorId], references: [id], onDelete: Cascade)
   proposedRole          TribunalRole
   nominatedBy           PartySide?
+  appointmentMethod     AppointmentMethod @default(PARTY_NOMINATION)
   status                AppointmentStatus @default(INVITED)
   feeAccepted           Boolean           @default(false)
   availabilityConfirmed Boolean           @default(false)
+  reminderCount         Int               @default(0)
+  lastReminderAt        DateTime?
+  declineReason         String?
+  fillsVacancyUserId    String? // userId of the member this invitation replaces
   respondedAt           DateTime?
   expiresAt             DateTime?
   createdAt             DateTime          @default(now())

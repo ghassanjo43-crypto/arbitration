@@ -38,6 +38,39 @@ expert evidence (`evidence`, Ch13–14), interim measures (`interim`, Ch16),
 default proceedings (`defaults`, Ch17), expedited track (`casetracks`, Ch23),
 consolidation & joinder (`casetracks`, Ch24).
 
+## Tribunal appointment — due-process robustness (Ch7–8)
+
+The appointment workflow (`apps/api/src/appointments`) handles the realistic edge
+paths, not just the happy path:
+
+- **Composition.** Sole and three-member tribunals. Constitution only succeeds
+  when the exact seats are filled by ACTIVE, accepted members — a sole tribunal
+  needs one accepted sole arbitrator; a three-member tribunal needs two
+  co-arbitrators **and** a chair.
+- **Party silence / refusal to nominate.** The appointing authority makes a
+  recorded **default (institution) appointment** (`POST cases/:id/appointments/default`).
+  Outstanding invitations are reminded (`/remind`) and an **expiry sweep**
+  (`/appointments/expire-sweep`) marks non-responses `EXPIRED` after the response
+  window; repeated declines are recorded with a reason.
+- **Presiding arbitrator (chair).** The two party-appointed co-arbitrators
+  nominate the chair (`/tribunal/nominate-chair`, method `CO_ARBITRATOR_NOMINATION`);
+  if they cannot agree, the authority appoints the chair by default
+  (`defaultAppoint` with role `CHAIR`).
+- **Conflicts/disclosures.** A conflict-of-interest disclosure is **required
+  before acceptance** — acceptance is refused without one.
+- **Challenges.** A pending challenge **suspends** constitution. An **UPHELD**
+  challenge vacates the seat (stripping deliberation access and de-constituting
+  the tribunal) and withdraws that arbitrator's invitations; **DISMISSED** resumes.
+- **Vacancies & replacement.** Resignation, removal, incapacity or death is
+  recorded (`/tribunal/members/:id/vacancy`), which de-constitutes the tribunal
+  and opens the seat; a **replacement** invitation refills it
+  (`/tribunal/replace`). Compliance holds also block constitution.
+- **Audit & notices** are emitted for invitations, reminders, defaults, chair
+  nomination, vacancies, replacements, challenge decisions, and constitution.
+
+Response time limits are currently a fixed window with a manual/scheduled expiry
+sweep; wiring them to the rules-engine deadline definitions is a follow-up.
+
 ## Authority boundaries (enforced in code)
 
 - The **tribunal alone** decides jurisdiction, admissibility, evidence,

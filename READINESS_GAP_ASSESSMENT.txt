@@ -143,12 +143,29 @@ P1.3  AWARD & NOTICE DOCUMENT GENERATION                   [DONE]    Effort: M
   formalities where a seat requires them (LEGAL items 6–7); Arabic (RTL) award
   rendering needs an embedded shaping font (future).
 
-P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS [PARTIAL] Effort: M
-  Now: invite → conflict → accept → constitute is built; challenge decisions
-  exist. Edge paths (party fails to nominate, repeated declines, sole-vs-three
-  fallback, presiding-arbitrator selection) need hardening.
-  Needed: a complete, documented default-appointment mechanism with timeouts
-  driven by the rules engine.
+P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS  [DONE]   Effort: M
+  DONE (2026-06-23): appointment workflow hardened for due process (migration
+  20260623120000_appointment_hardening adds member status/vacancy + invitation
+  method/reminder/vacancy fields).
+   - Sole and three-member paths; constitution only succeeds when the exact seats
+     are filled by ACTIVE accepted members (sole: 1 SOLE; three: 1 chair + 2
+     co-arbitrators).
+   - Party silence/refusal → institution DEFAULT appointment; reminders
+     (reminderCount) and an expiry sweep mark non-response invitations EXPIRED.
+   - Chair nominated by the two co-arbitrators (CO_ARBITRATOR_NOMINATION); if they
+     cannot agree, defaultAppoint(role=CHAIR) is the institution fallback.
+   - Vacancies (resignation/removal/incapacity/death) strip deliberation access
+     and de-constitute the tribunal; replacement invitations refill the seat.
+   - A conflict-of-interest disclosure is REQUIRED before acceptance; a pending
+     challenge and an active compliance hold both suspend constitution; an UPHELD
+     challenge vacates the seat and withdraws that arbitrator's invitations.
+   - Notices/audit events for invitations, reminders, defaults, chair nomination,
+     vacancies, replacements, challenge decisions and constitution. 17 unit tests
+     cover silence, non-response, chair-selection, replacement, challenge, and
+     sole-vs-three paths.
+  Remaining (lower priority): wire the invitation/response time limits to the
+  rules engine's deadline definitions (today they are a fixed 14-day window +
+  manual/scheduled expiry sweep), and a UI surface for the new actions.
 
 
 --------------------------------------------------------------------------------

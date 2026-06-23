@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
-import { TribunalRole, PartySide, ChallengeStatus } from '@prisma/client';
+import { TribunalRole, PartySide, ChallengeStatus, AppointmentMethod, VacancyReason } from '@prisma/client';
 
 export class InviteArbitratorDto {
   @IsUUID()
@@ -11,6 +11,61 @@ export class InviteArbitratorDto {
   @IsOptional()
   @IsEnum(PartySide)
   nominatedBy?: PartySide;
+
+  @IsOptional()
+  @IsEnum(AppointmentMethod)
+  appointmentMethod?: AppointmentMethod;
+}
+
+export class DefaultAppointDto {
+  @IsUUID()
+  arbitratorId!: string;
+
+  @IsEnum(TribunalRole)
+  proposedRole!: TribunalRole;
+
+  @IsOptional()
+  @IsEnum(PartySide)
+  nominatedBy?: PartySide;
+
+  /** Why the default appointment was made (party silence/refusal, chair failure). */
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class NominateChairDto {
+  @IsUUID()
+  arbitratorId!: string;
+}
+
+export class RecordVacancyDto {
+  @IsEnum(VacancyReason)
+  reason!: VacancyReason;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class ReplaceMemberDto {
+  /** userId of the member being replaced. */
+  @IsString()
+  vacatedUserId!: string;
+
+  @IsUUID()
+  arbitratorId!: string;
+
+  @IsEnum(TribunalRole)
+  proposedRole!: TribunalRole;
+
+  @IsOptional()
+  @IsEnum(PartySide)
+  nominatedBy?: PartySide;
+
+  @IsOptional()
+  @IsEnum(AppointmentMethod)
+  appointmentMethod?: AppointmentMethod;
 }
 
 export class ConflictDisclosureDto {
@@ -37,6 +92,10 @@ export class RespondToInvitationDto {
 
   @IsBoolean()
   availabilityConfirmed!: boolean;
+
+  @IsOptional()
+  @IsString()
+  declineReason?: string;
 }
 
 export class RaiseChallengeDto {

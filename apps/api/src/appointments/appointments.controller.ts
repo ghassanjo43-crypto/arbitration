@@ -7,7 +7,17 @@ import { PermissionsGuard } from '../authz/permissions.guard';
 import { RequirePermissions } from '../authz/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { ConflictDisclosureDto, DecideChallengeDto, InviteArbitratorDto, RaiseChallengeDto, RespondToInvitationDto } from './dto';
+import {
+  ConflictDisclosureDto,
+  DecideChallengeDto,
+  DefaultAppointDto,
+  InviteArbitratorDto,
+  NominateChairDto,
+  RaiseChallengeDto,
+  RecordVacancyDto,
+  ReplaceMemberDto,
+  RespondToInvitationDto,
+} from './dto';
 
 @ApiTags('appointments')
 @ApiBearerAuth()
@@ -29,6 +39,51 @@ export class AppointmentsController {
   @RequirePermissions(Permission.APPOINTMENT_MANAGE)
   constitute(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
     return this.appointments.constitute(user, caseId);
+  }
+
+  /** Default (institution) appointment on party silence/refusal or chair-selection failure. */
+  @Post('cases/:caseId/appointments/default')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.APPOINTMENT_MANAGE)
+  defaultAppoint(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: DefaultAppointDto) {
+    return this.appointments.defaultAppoint(user, caseId, dto);
+  }
+
+  @Post('appointments/:id/remind')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.APPOINTMENT_MANAGE)
+  remind(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.appointments.sendReminder(user, id);
+  }
+
+  /** Expire invitations whose response window has elapsed (also for a scheduled job). */
+  @Post('appointments/expire-sweep')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.APPOINTMENT_MANAGE)
+  expireSweep() {
+    return this.appointments.expireStaleInvitations();
+  }
+
+  /** Co-arbitrators (or the appointing authority) nominate the presiding chair. */
+  @Post('cases/:caseId/tribunal/nominate-chair')
+  nominateChair(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: NominateChairDto) {
+    return this.appointments.nominateChair(user, caseId, dto);
+  }
+
+  /** Record a tribunal vacancy (resignation / removal / incapacity / death). */
+  @Post('tribunal/members/:memberId/vacancy')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.APPOINTMENT_MANAGE)
+  recordVacancy(@CurrentUser() user: AuthUser, @Param('memberId') memberId: string, @Body() dto: RecordVacancyDto) {
+    return this.appointments.recordVacancy(user, memberId, dto);
+  }
+
+  /** Invite a replacement arbitrator to fill a vacated seat. */
+  @Post('cases/:caseId/tribunal/replace')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.APPOINTMENT_MANAGE)
+  replaceMember(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string, @Body() dto: ReplaceMemberDto) {
+    return this.appointments.replaceMember(user, caseId, dto);
   }
 
   // ---- Arbitrator ----
