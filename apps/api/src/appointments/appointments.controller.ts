@@ -86,6 +86,12 @@ export class AppointmentsController {
     return this.appointments.replaceMember(user, caseId, dto);
   }
 
+  /** Consolidated read-only appointment view for a case (any case participant). */
+  @Get('cases/:caseId/appointments/overview')
+  overview(@CurrentUser() user: AuthUser, @Param('caseId') caseId: string) {
+    return this.appointments.caseOverview(user, caseId);
+  }
+
   // ---- Arbitrator ----
   @Get('appointments/mine')
   myInvitations(@CurrentUser() user: AuthUser) {

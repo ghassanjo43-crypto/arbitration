@@ -292,6 +292,100 @@ export class AppointmentsService {
     return { expired: expiredIds.length };
   }
 
+  /**
+   * Consolidated, read-only appointment view for a case: tribunal composition,
+   * invitations (with their rule-driven response deadlines), conflict-disclosure
+   * status, and challenges. Any case participant may read it (it exposes no
+   * deliberations, award drafts, or room links); management actions remain gated
+   * by APPOINTMENT_MANAGE / CHALLENGE_DECIDE at the controller and service layer.
+   */
+  async caseOverview(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+
+    const [tribunal, invitations, challenges, disclosures] = await Promise.all([
+      this.prisma.tribunal.findUnique({ where: { caseId }, include: { members: true } }),
+      this.prisma.appointmentInvitation.findMany({
+        where: { caseId },
+        include: { arbitrator: { select: { id: true, fullName: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.arbitratorChallenge.findMany({ where: { caseId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.conflictDisclosure.findMany({ where: { caseId }, orderBy: { createdAt: 'desc' } }),
+    ]);
+
+    // Resolve display names for member/challenge user ids in one query.
+    const userIds = [
+      ...(tribunal?.members.map((m) => m.arbitratorUserId) ?? []),
+      ...challenges.map((c) => c.challengedArbitratorUserId),
+    ];
+    const profiles = userIds.length
+      ? await this.prisma.userProfile.findMany({ where: { userId: { in: [...new Set(userIds)] } }, select: { userId: true, displayName: true } })
+      : [];
+    const nameByUserId = new Map(profiles.map((p) => [p.userId, p.displayName]));
+
+    // Linked rule-driven deadlines for invitations (authoritative dueAt/status).
+    const deadlineIds = invitations.map((i) => i.deadlineId).filter((d): d is string => !!d);
+    const deadlines = deadlineIds.length
+      ? await this.prisma.deadline.findMany({ where: { id: { in: deadlineIds } }, select: { id: true, dueAt: true, status: true } })
+      : [];
+    const deadlineById = new Map(deadlines.map((d) => [d.id, d]));
+    const disclosedArbitratorIds = new Set(disclosures.map((d) => d.arbitratorId));
+
+    const openChallenge = challenges.some((c) => c.status === ChallengeStatus.SUBMITTED || c.status === ChallengeStatus.UNDER_REVIEW);
+
+    return {
+      composition: tribunal?.composition ?? null,
+      constituted: tribunal?.constituted ?? false,
+      pendingChallenge: openChallenge,
+      members: (tribunal?.members ?? []).map((m) => ({
+        id: m.id,
+        arbitratorUserId: m.arbitratorUserId,
+        displayName: nameByUserId.get(m.arbitratorUserId) ?? m.arbitratorUserId,
+        role: m.role,
+        status: m.status,
+        nominatedBy: m.nominatedBy,
+        acceptedAt: m.acceptedAt,
+        vacatedAt: m.vacatedAt,
+        vacancyReason: m.vacancyReason,
+      })),
+      invitations: invitations.map((i) => {
+        const d = i.deadlineId ? deadlineById.get(i.deadlineId) : undefined;
+        return {
+          id: i.id,
+          arbitratorId: i.arbitratorId,
+          arbitratorName: i.arbitrator.fullName,
+          proposedRole: i.proposedRole,
+          nominatedBy: i.nominatedBy,
+          appointmentMethod: i.appointmentMethod,
+          status: i.status,
+          reminderCount: i.reminderCount,
+          lastReminderAt: i.lastReminderAt,
+          declineReason: i.declineReason,
+          fillsVacancyUserId: i.fillsVacancyUserId,
+          disclosureFiled: disclosedArbitratorIds.has(i.arbitratorId),
+          responseDeadline: {
+            dueAt: d?.dueAt ?? i.expiresAt,
+            status: d?.status ?? null,
+            source: i.deadlineId ? 'RULE' : 'FALLBACK',
+          },
+        };
+      }),
+      challenges: challenges.map((c) => ({
+        id: c.id,
+        challengedArbitratorUserId: c.challengedArbitratorUserId,
+        challengedName: nameByUserId.get(c.challengedArbitratorUserId) ?? c.challengedArbitratorUserId,
+        status: c.status,
+        grounds: c.grounds,
+        decidedAt: c.decidedAt,
+        decisionNote: c.decisionNote,
+      })),
+      viewer: {
+        canManage: user.permissions.includes(Permission.APPOINTMENT_MANAGE),
+        canDecideChallenge: user.permissions.includes(Permission.CHALLENGE_DECIDE),
+      },
+    };
+  }
+
   /** Invitations addressed to the signed-in arbitrator. */
   async myInvitations(user: AuthUser) {
     const profile = await this.prisma.arbitratorProfile.findUnique({ where: { userId: user.id }, select: { id: true } });

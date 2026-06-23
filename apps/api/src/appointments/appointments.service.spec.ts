@@ -106,6 +106,37 @@ describe('AppointmentsService — default appointment & lifecycle', () => {
   });
 });
 
+describe('AppointmentsService — case overview (read)', () => {
+  it('aggregates composition, invitations with deadline source, challenges and viewer caps', async () => {
+    const due = new Date(Date.now() + 5 * 86400000);
+    const { service } = make({
+      tribunal: { findUnique: jest.fn().mockResolvedValue({ id: 'trib1', composition: TribunalComposition.SOLE, constituted: false, members: [{ id: 'm1', arbitratorUserId: 'u1', role: TribunalRole.SOLE, status: TribunalMemberStatus.ACTIVE, nominatedBy: null, acceptedAt: new Date(), vacatedAt: null, vacancyReason: null }] }) },
+      appointmentInvitation: { findMany: jest.fn().mockResolvedValue([
+        { id: 'inv1', arbitratorId: 'prof1', arbitrator: { id: 'prof1', fullName: 'Dr Smith' }, proposedRole: TribunalRole.SOLE, nominatedBy: null, appointmentMethod: AppointmentMethod.PARTY_NOMINATION, status: AppointmentStatus.CONFLICT_CHECK, reminderCount: 1, lastReminderAt: null, declineReason: null, fillsVacancyUserId: null, deadlineId: 'dl1', expiresAt: due },
+        { id: 'inv2', arbitratorId: 'prof2', arbitrator: { id: 'prof2', fullName: 'Mr Jones' }, proposedRole: TribunalRole.CO_ARBITRATOR, nominatedBy: 'CLAIMANT', appointmentMethod: AppointmentMethod.INSTITUTION_DEFAULT, status: AppointmentStatus.INVITED, reminderCount: 0, lastReminderAt: null, declineReason: null, fillsVacancyUserId: null, deadlineId: null, expiresAt: due },
+      ]) },
+      arbitratorChallenge: { findMany: jest.fn().mockResolvedValue([{ id: 'ch1', challengedArbitratorUserId: 'u1', status: ChallengeStatus.SUBMITTED, grounds: 'bias', decidedAt: null, decisionNote: null }]) },
+      conflictDisclosure: { findMany: jest.fn().mockResolvedValue([{ arbitratorId: 'prof1' }]) },
+      userProfile: { findMany: jest.fn().mockResolvedValue([{ userId: 'u1', displayName: 'Dr Smith' }]) },
+      deadline: { findMany: jest.fn().mockResolvedValue([{ id: 'dl1', dueAt: due, status: 'OPEN' }]) },
+    }, { caseRoles: [] });
+
+    const managerUser = { id: 'reg1', email: 'r@x.com', roles: [], permissions: ['appointment:manage'] } as unknown as AuthUser;
+    const res = await service.caseOverview(managerUser, 'c1') as Record<string, unknown> as {
+      composition: string; pendingChallenge: boolean; members: unknown[];
+      invitations: Array<{ disclosureFiled: boolean; responseDeadline: { source: string } }>;
+      challenges: unknown[]; viewer: { canManage: boolean };
+    };
+    expect(res.composition).toBe(TribunalComposition.SOLE);
+    expect(res.pendingChallenge).toBe(true);
+    expect(res.members).toHaveLength(1);
+    expect(res.invitations[0].disclosureFiled).toBe(true);
+    expect(res.invitations[0].responseDeadline.source).toBe('RULE');
+    expect(res.invitations[1].responseDeadline.source).toBe('FALLBACK');
+    expect(res.viewer.canManage).toBe(true);
+  });
+});
+
 describe('AppointmentsService — rules-engine response deadlines', () => {
   const DAY = 86400000;
 

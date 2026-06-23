@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ORDERED_STAGES } from '@gaap/shared';
 import { api } from '../../lib/api';
 import { DocumentsTab } from './case/DocumentsTab';
+import { TribunalTab } from './case/TribunalTab';
 import { MessagesTab } from './case/MessagesTab';
 import { CalendarTab } from './case/CalendarTab';
 import { FinanceTab } from './case/FinanceTab';
@@ -27,7 +28,7 @@ interface CaseDetail {
   _membership: { isTribunal: boolean; caseRoles: string[] };
 }
 
-type TabKey = 'overview' | 'timeline' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
+type TabKey = 'overview' | 'timeline' | 'tribunal' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'deliberations';
 
 const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPONDENT_REPRESENTATIVE'];
 
@@ -53,6 +54,7 @@ export function CaseWorkspace() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: t('case.tab.overview') },
     { key: 'timeline', label: t('case.tab.timeline') },
+    { key: 'tribunal', label: t('case.tab.tribunal') },
     { key: 'rules', label: t('case.tab.rules') },
     { key: 'documents', label: t('case.tab.documents') },
     { key: 'messages', label: t('case.tab.messages') },
@@ -112,6 +114,7 @@ export function CaseWorkspace() {
             </div>
           )}
           {tab === 'timeline' && <ProceduralTimelineTab caseId={data.id} stage={data.stage} />}
+          {tab === 'tribunal' && <TribunalTab caseId={data.id} />}
           {tab === 'rules' && <RulesProcedureTab caseId={data.id} isParty={isParty} />}
           {tab === 'documents' && <DocumentsTab caseId={data.id} />}
           {tab === 'messages' && <MessagesTab caseId={data.id} />}
