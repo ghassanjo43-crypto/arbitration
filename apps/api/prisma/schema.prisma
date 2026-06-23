@@ -434,6 +434,9 @@ model Case {
   updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
   registeredAt               DateTime?
+  closedAt                   DateTime? // when the case reached a terminal stage (retention anchor)
+  legalHold                  Boolean   @default(false) // blocks retention deletion while true
+  retentionStatus            RetentionStatus @default(ACTIVE)
 
   parties             CaseParty[]
   teamMembers         CaseTeamMember[]
@@ -2188,6 +2191,66 @@ model SystemSetting {
   value     String // JSON
   updatedBy String?
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// DATA RETENTION & LEGAL HOLD (Chapter 25)
+// A controlled, auditable retention framework. It never deletes real case
+// material by default: sweeps are dry-run first, execution is super-admin +
+// confirm gated, deletions are soft (tombstoned), and a legal hold blocks any
+// deletion. Awards, audit logs and service evidence are RETAIN-FOREVER safeguards.
+// ============================================================================
+
+enum RetentionStatus {
+  ACTIVE
+  RETAINED // kept under a long/forever retention rule (e.g. award, audit log)
+  ELIGIBLE_FOR_REVIEW // past its period but requires human review before deletion
+  SCHEDULED_FOR_DELETION
+  DELETED // soft-deleted / tombstoned (row preserved for the audit trail)
+  LEGAL_HOLD
+}
+
+enum LegalHoldStatus {
+  ACTIVE
+  RELEASED
+}
+
+model LegalHold {
+  id           String          @id @default(uuid())
+  caseId       String
+  reason       String
+  status       LegalHoldStatus @default(ACTIVE)
+  placedById   String?
+  placedAt     DateTime        @default(now())
+  releasedById String?
+  releaseNote  String?
+  releasedAt   DateTime?
+
+  @@index([caseId])
+  @@index([status])
+}
+
+// Append-only evidence of every retention evaluation/action (dry-run included).
+// Tombstones a deletion: the original row may be soft-deleted, but this record
+// (and any preserved hash) remains so the action is provable.
+model RetentionSweepRecord {
+  id            String   @id @default(uuid())
+  runId         String // groups all records produced by one sweep
+  dryRun        Boolean  @default(true)
+  category      String // RetentionCategory key
+  entityType    String
+  entityId      String
+  caseId        String?
+  action        String // EVALUATED_ELIGIBLE | SOFT_DELETED | RETAINED | SKIPPED_LEGAL_HOLD | SCHEDULED
+  eligibleAt    DateTime?
+  reason        String?
+  hashPreserved String? // a content/record hash kept as deletion evidence
+  performedById String?
+  createdAt     DateTime @default(now())
+
+  @@index([runId])
+  @@index([caseId])
+  @@index([category])
 }
 
 // ============================================================================

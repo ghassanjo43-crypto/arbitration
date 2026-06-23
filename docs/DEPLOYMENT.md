@@ -117,6 +117,14 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
   and account lockouts record an `OPERATIONAL_FAILURE` audit event. Recommended alerts, provider
   dashboards and the on-call **incident-response runbook** (with SEV1–3 levels and evidence-
   preservation steps) are in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md).
+- **Data retention** is executable but **safe by design** (see
+  [DATA_RETENTION.md](DATA_RETENTION.md)). Retention periods are engineering defaults overridable
+  via the `retention.policy` SystemSetting and **must be set by counsel per seat**. A retention
+  **sweep is dry-run first** (`POST /api/admin/retention/sweep/dry-run`); **execution** requires
+  the SUPER_ADMIN role + `confirm: true` + an opt-in category list and only **soft-deletes
+  (tombstones)** — awards, audit logs and service evidence are RETAIN_FOREVER and never deleted,
+  and a **legal hold** blocks deletion. Super-admins manage it at `/app/admin/retention`. Run the
+  sweep on a schedule only after counsel has approved the periods; until then leave it manual.
 - **Payments** run on `manual`. Payments intentionally remain manual pending the escrow/
   client-funds and AML/KYC accounting decisions — see the readiness assessment.
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real

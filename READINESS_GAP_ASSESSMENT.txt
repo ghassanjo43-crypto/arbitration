@@ -259,11 +259,26 @@ P2.3  EMAIL DELIVERABILITY & NOTIFICATION HARDENING          [DONE]   Effort: S
   SPF/DKIM/DMARC, point the provider webhook at the endpoint, and have counsel
   confirm the delivery audit is sufficient evidence of service for each seat.
 
-P2.4  DATA RETENTION & DELETION EXECUTION            [PARTIAL][LEGAL] Effort: M
-  Now: docs/DATA_RETENTION.md defines the policy; audit log is append-only.
-  Needed: actually enforce retention windows, lawful-deletion / data-subject-
-  rights workflows balanced against arbitral-record retention, and cross-border
-  transfer mechanisms (SCCs/adequacy — checklist items 13–14).
+P2.4  DATA RETENTION & DELETION EXECUTION      [FRAMEWORK DONE][LEGAL] Effort: M
+  DONE (2026-06-23): a controlled, auditable, SAFE retention/deletion/export
+  framework (migration 20260623170000_data_retention). Categories + behaviours
+  (retention-policy.ts, overridable via the retention.policy SystemSetting):
+  case records/filings/evidence SOFT_DELETE; awards/notices+certificates/audit
+  logs RETAIN_FOREVER (safeguarded); email evidence/screening/user accounts/auth
+  logs/CMS REVIEW. RetentionStatus (active/retained/eligible_for_review/scheduled/
+  deleted/legal_hold) on the Case. LegalHold model blocks deletion while active
+  (assertNoLegalHold guard). Sweep is DRY-RUN first (reports eligible + held,
+  changes nothing); EXECUTION is gated (SUPER_ADMIN role + confirm:true + opt-in
+  categories), soft-deletes (tombstone + preserved hash), refuses RETAIN_FOREVER,
+  skips legal-held. Export manifest (case + document/award/certificate hashes)
+  before deletion. Admin UI /app/admin/retention (SETTINGS_MANAGE). All actions
+  audited. Tests: dry-run, legal-hold blocking, eligible records, soft-delete/
+  tombstone, execution gates, audit (9 API + 5 web).
+  Remaining (LEGAL, not code): counsel must set the actual retention periods per
+  seat (override the defaults), define the lawful-deletion / data-subject-rights
+  workflow balanced against arbitral-record retention, and the cross-border
+  transfer mechanisms (SCCs/adequacy — checklist items 13–14). Wiring closedAt on
+  every terminal transition + a scheduled sweep are small follow-ups.
 
 P2.5  ACCESSIBILITY, BROWSER & LOAD TESTING                 [GAP]    Effort: M
   Needed: WCAG accessibility pass (esp. with full RTL/Arabic), cross-browser QA,
