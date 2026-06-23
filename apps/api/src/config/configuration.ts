@@ -23,6 +23,18 @@ export interface AppConfig {
     localRoot: string;
     signedUrlTtl: number;
     maxUploadMb: number;
+    s3: {
+      /** Optional custom endpoint for S3-compatible backends (MinIO, R2, Backblaze). */
+      endpoint?: string;
+      region: string;
+      bucket: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      /** Path-style addressing is required by most non-AWS S3-compatible servers. */
+      forcePathStyle: boolean;
+      /** Server-side encryption header: 'AES256' (S3-managed) or 'aws:kms'. */
+      serverSideEncryption: string;
+    };
   };
   email: {
     driver: 'console' | 'smtp' | 'resend';
@@ -76,6 +88,15 @@ export default (): AppConfig => ({
     localRoot: process.env.STORAGE_LOCAL_ROOT ?? './storage',
     signedUrlTtl: parseInt(process.env.SIGNED_URL_TTL ?? '600', 10),
     maxUploadMb: parseInt(process.env.MAX_UPLOAD_MB ?? '100', 10),
+    s3: {
+      endpoint: process.env.S3_ENDPOINT || undefined,
+      region: process.env.S3_REGION ?? 'us-east-1',
+      bucket: process.env.S3_BUCKET ?? 'arbitration-documents',
+      accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
+      forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'false') === 'true',
+      serverSideEncryption: process.env.S3_SERVER_SIDE_ENCRYPTION ?? 'AES256',
+    },
   },
   email: {
     driver: (process.env.EMAIL_DRIVER as 'console' | 'smtp' | 'resend') ?? 'console',

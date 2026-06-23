@@ -1,0 +1,211 @@
+================================================================================
+ GLOBAL AD HOC ARBITRATION PANEL (GAAP) — READINESS & GAP ASSESSMENT
+================================================================================
+What is genuinely built, what is a development stub, and what must still be done
+to operate as a real administered ad hoc arbitration panel (not a demo).
+
+Repo: D:\arbitration   |   Branch reviewed: feat/rules-engine   |   Date: 2026-06-23
+
+Legend for STATE:
+  [DONE]  Built and tested in code.
+  [STUB]  Code path exists but is a development placeholder; not production.
+  [GAP]   Not implemented / not present.
+  [LEGAL] Cannot be resolved by engineering; needs qualified counsel sign-off.
+
+Legend for EFFORT (engineering only — excludes legal/commercial time):
+  S  ≈ days        M ≈ 1–3 weeks        L ≈ 1–2 months        XL ≈ quarter+
+
+
+--------------------------------------------------------------------------------
+0. HOW TO READ THIS
+--------------------------------------------------------------------------------
+The CASE-MANAGEMENT SPINE of the product is real and tested: filing → registry
+review → tribunal appointment (invite → conflict → accept → constitute) →
+documents / messages / evidence → award lifecycle, all wrapped in the
+confidentiality model, the append-only audit log, and the rules engine.
+
+What is missing is almost entirely at the EDGES — anything that touches the
+outside world (money, video, durable storage, identity screening) — plus the
+LEGAL and CONTENT work that code cannot do. This document inventories those
+gaps and proposes an order to close them.
+
+
+--------------------------------------------------------------------------------
+1. PRIORITY 0 — HARD BLOCKERS (cannot run a real case without these)
+--------------------------------------------------------------------------------
+
+P0.1  REAL PAYMENTS                                          [STUB]   Effort: M
+  Now: apps/api/src/providers/payment/payment.service.ts has only the "manual"
+  adapter — it records a PENDING intent that a registrar confirms by hand. The
+  "stripe" path is a logger.warn no-op. No card capture, no real settlement.
+  Needed: a real gateway (Stripe/Adyen/bank-transfer reconciliation), webhooks
+  to confirm settlement, idempotency, currency handling, invoice receipts, and
+  refund execution wired to the existing Refund/Payment/PaymentAllocation models.
+  Why it blocks: you cannot collect filing fees, deposits, or arbitrator fees.
+
+P0.2  CLIENT-FUNDS CUSTODY / ESCROW                  [GAP][LEGAL]    Effort: L
+  Now: explicitly NOT implemented (LEGAL_REVIEW_CHECKLIST items 8–9). The
+  fee/deposit protocol is documented and flagged, not built.
+  Needed: segregated client/trust accounts, deposit ledger reconciliation,
+  disbursement controls, and the regulatory wrapper (payment-services / e-money /
+  trust-account rules). A real panel holds advances on costs — this is core, not
+  optional, and it is half engineering, half regulated-entity setup.
+
+P0.3  REAL ONLINE HEARINGS                                  [STUB]   Effort: M
+  Now: apps/api/src/providers/video/video.service.ts returns a fake
+  https://hearings.local/placeholder/... URL. Rooms are modelled (tribunal /
+  party / witness / breakout) but never created on a real platform.
+  Needed: integrate Zoom/Teams/Google Meet (or a sovereign equivalent) —
+  room provisioning, waiting rooms, recording + retention, access tokens scoped
+  to participants, and join-audit. Hearings are a defining feature of the panel.
+
+P0.4  DURABLE / SECURE STORAGE                              [DONE]   Effort: S–M
+  DONE (2026-06-23): storage.service.ts now has a real `s3` driver (AWS SDK v3)
+  alongside `local`. Works with AWS S3 and S3-compatible backends (Cloudflare R2,
+  MinIO, Backblaze B2) via S3_ENDPOINT/path-style. Uploads request server-side
+  encryption (S3_SERVER_SIDE_ENCRYPTION, default AES256) and a SHA-256 integrity
+  checksum; credentials come from env keys OR the instance IAM role (default
+  credential chain). Downloads remain brokered by the API (access re-check +
+  audit) — no raw bucket URL is exposed. GET /api/health reports storage up/down
+  via a bucket HeadBucket check. Unit tests cover the local round-trip + token logic.
+  Remaining (lower priority, P2): object versioning, lifecycle/retention rules,
+  and bucket backup are configured at the bucket level (infra), not in app code.
+
+P0.5  IDENTITY / KYC / AML / SANCTIONS SCREENING     [STUB][LEGAL]   Effort: M
+  Now: IdentityVerification and ComplianceCheck tables exist; the screening
+  integration is a stub (checklist item 11).
+  Needed: a KYC/IDV provider and sanctions/PEP screening for parties,
+  representatives, and arbitrators, with a documented review workflow. Required
+  for onboarding real money and real parties in most jurisdictions.
+
+
+--------------------------------------------------------------------------------
+2. PRIORITY 1 — SUBSTANTIVE PANEL COMPLETENESS (needed to be credible)
+--------------------------------------------------------------------------------
+
+P1.1  COUNSEL-REVIEWED RULE CONTENT                  [STUB][LEGAL]   Effort: L
+  Now: the rules ENGINE is real (versioned RuleSet → Chapter → Rule, triggers →
+  actions, idempotent, per-case pinning, overrides/exceptions — docs/RULES_ENGINE.md).
+  But the actual rule TEXT is seeded engineering drafts (seed.ts), and the
+  26-chapter procedural build is in progress on this branch (Phase A done).
+  Needed: finish authoring all chapters (EN + AR), then a full pass by qualified
+  arbitration counsel for each target seat. The engine is the skeleton; the
+  enforceable words are the product.
+
+P1.2  A REAL, VETTED ARBITRATOR PANEL                       [GAP]    Effort: L
+  Now: the arbitrator directory is fake seed data.
+  Needed: recruit, contract, conflict-check, and onboard genuine arbitrators;
+  build the panel-governance flows for approval/suspension (models exist) into
+  an actual admissions process. A "panel" with no real arbitrators is the
+  headline gap for presenting this as a panel.
+
+P1.3  AWARD & NOTICE DOCUMENT GENERATION                    [GAP]    Effort: M
+  Now: awards/notices are data records with signature METADATA fields; there is
+  no PDF/printable-original generation pipeline.
+  Needed: generate formal, paginated, e-signed (and where required, certified /
+  wet-ink) award and certificate documents from templates, with tamper-evident
+  sealing. Tied to LEGAL items 6–7 (e-signature / electronic-award validity).
+
+P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS [PARTIAL] Effort: M
+  Now: invite → conflict → accept → constitute is built; challenge decisions
+  exist. Edge paths (party fails to nominate, repeated declines, sole-vs-three
+  fallback, presiding-arbitrator selection) need hardening.
+  Needed: a complete, documented default-appointment mechanism with timeouts
+  driven by the rules engine.
+
+
+--------------------------------------------------------------------------------
+3. PRIORITY 2 — OPERATIONAL READINESS (needed to run it safely)
+--------------------------------------------------------------------------------
+
+P2.1  PRODUCTION DEPLOYMENT, BACKUP & DR                    [GAP]    Effort: M
+  Needed: managed Postgres with PITR backups, storage backups, secrets
+  management (PASSWORD_PEPPER / signing keys rotated and vaulted), restore drills,
+  defined region (data-residency, checklist item 12), and an uptime/SLA posture.
+
+P2.2  OBSERVABILITY & INCIDENT RESPONSE                     [GAP]    Effort: S–M
+  Now: correlation IDs + rate limiting + global exception filter exist.
+  Needed: centralized logging, metrics, alerting, error tracking, and a documented
+  incident/breach-response runbook (breach notification ties to privacy law).
+
+P2.3  EMAIL DELIVERABILITY & NOTIFICATION HARDENING         [PARTIAL] Effort: S
+  Now: Resend is wired; the notification catalog is largely complete (recent
+  commits closed it toward 20/20).
+  Needed: production domain auth (SPF/DKIM/DMARC), bounce/complaint handling, and
+  confirmation that legally-significant notices (service, awards) have a delivery
+  audit sufficient for the seat (service ≠ receipt is already modelled).
+
+P2.4  DATA RETENTION & DELETION EXECUTION            [PARTIAL][LEGAL] Effort: M
+  Now: docs/DATA_RETENTION.md defines the policy; audit log is append-only.
+  Needed: actually enforce retention windows, lawful-deletion / data-subject-
+  rights workflows balanced against arbitral-record retention, and cross-border
+  transfer mechanisms (SCCs/adequacy — checklist items 13–14).
+
+P2.5  ACCESSIBILITY, BROWSER & LOAD TESTING                 [GAP]    Effort: M
+  Needed: WCAG accessibility pass (esp. with full RTL/Arabic), cross-browser QA,
+  and load/performance testing before real parties depend on it.
+
+
+--------------------------------------------------------------------------------
+4. PRIORITY 3 — LEGAL / COMMERCIAL (not engineering, but gate launch)
+--------------------------------------------------------------------------------
+All from docs/LEGAL_REVIEW_CHECKLIST.md — every Blocker must clear before go-live:
+  • Incorporation jurisdiction & regulatory status (institution vs tech provider).
+  • Confirm "administered ad hoc, not an institution / not UNCITRAL" positioning.
+  • Seat-specific mandatory law; electronic service/signature/award validity.
+  • Payment-services / escrow regulation; tax (VAT/GST, withholding).
+  • Privacy (GDPR/local), data hosting & transfers.
+  • Consumer/employment arbitrability restrictions.
+  • Enforcement / New York Convention disclaimer wording.
+  • Tribunal-secretary scope; award-publication consent/anonymisation.
+  • Professional liability insurance for the operating company and panel.
+  • Contracts: arbitrator engagement terms, party T&Cs, DPAs with subprocessors
+    (payment, video, storage, IDV, email).
+
+
+--------------------------------------------------------------------------------
+5. WHAT IS ALREADY SOLID (so it isn't rebuilt)
+--------------------------------------------------------------------------------
+  [DONE] Case lifecycle & stage transitions (cases / registry).
+  [DONE] Tribunal appointment: invite → conflict disclosure → accept →
+         constitute; acceptance is what unlocks deliberation access.
+  [DONE] Confidentiality model: tribunal-only deliberations (even super-admin
+         denied), document confidentiality levels, signed time-limited downloads,
+         ex-parte messaging guard. Enforced and unit-tested.
+  [DONE] Documents (SHA-256 hashing, access-checked download, activity log),
+         secure messaging, procedural calendar/deadlines, fees/invoices/
+         allocations incl. substitute payment, hearings data model, awards
+         lifecycle (draft → sign → issue → correction/interpretation/additional).
+  [DONE] Rules ENGINE: versioned, per-case pinned, idempotent triggers→actions,
+         overrides & exceptions, sealed acceptance receipts, rule audit log.
+  [DONE] Auth hardening (Argon2id + pepper, email verify, reset, lockout,
+         JWT + refresh rotation), rate limiting, global exception filter,
+         append-only audit log, upload size cap.
+  [DONE] Bilingual EN/AR public site + role-aware app, ~63+ guarded API routes,
+         unit + e2e test matrix covering the critical flow and confidentiality.
+  [PARTIAL] Procedural chapters build (evidence, defaults, interim, joinder,
+         expedited) — modelled and progressing on feat/rules-engine.
+
+
+--------------------------------------------------------------------------------
+6. SUGGESTED ORDER OF WORK
+--------------------------------------------------------------------------------
+  Step 1 (engineering, parallelizable):
+     P0.4 storage(S3)  →  P0.1 payments  →  P0.3 video  →  P0.5 KYC/AML stub→real.
+  Step 2 (content + governance, start NOW, runs long):
+     P1.1 finish + counsel-review rules;  P1.2 recruit a real panel;
+     kick off P3 legal checklist with counsel (these have the longest lead time).
+  Step 3 (formalities):
+     P1.3 award/notice document generation;  P1.4 appointment edge cases.
+  Step 4 (operate safely):
+     P2.1 backup/DR;  P2.2 observability;  P2.4 retention execution;
+     P2.5 a11y/load.
+  Step 5 (gate):
+     P0.2 escrow + the regulated-entity wrapper, cleared with payments counsel,
+     is the final gate before holding real party money.
+
+NOTE: nothing here contradicts the repo's own stance — every legal item maps to
+docs/LEGAL_REVIEW_CHECKLIST.md, and the platform is deliberately built so the
+company only administers while the tribunal alone decides the merits.
+
+================================================================================

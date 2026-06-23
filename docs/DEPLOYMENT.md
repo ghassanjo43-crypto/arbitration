@@ -63,8 +63,14 @@ login returns `500`. Cause: no database is connected. Fix it on the **API** serv
 ## Production caveats
 
 - **File storage is ephemeral** on Render's free tier (`STORAGE_DRIVER=local`). Uploaded
-  documents are lost on restart/redeploy. For real use, set `STORAGE_DRIVER=s3` and configure the
-  S3 variables; the storage abstraction already supports it.
+  documents are lost on restart/redeploy. For real use set `STORAGE_DRIVER=s3` and configure
+  `S3_REGION`, `S3_BUCKET`, and either `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` **or** an instance
+  IAM role (leave the keys empty to use the default credential chain). Set `S3_ENDPOINT` (which
+  forces path-style addressing) for S3-compatible providers such as Cloudflare R2, MinIO, or
+  Backblaze B2. Uploads request server-side encryption (`S3_SERVER_SIDE_ENCRYPTION`, default
+  `AES256`) and a SHA-256 integrity checksum. Downloads stay brokered by the API (access re-check +
+  audit), so no raw bucket URL is ever exposed. `GET /api/health` reports `storage: up|down`
+  (it performs a bucket reachability check).
 - **Email/payments/video** run on development adapters (`console`/`manual`/`placeholder`). Wire
   real providers via the documented env vars before going live.
 - **Change the seeded password** and consider seeding only an admin (not demo data) in a real
