@@ -435,6 +435,20 @@ function chapterContent(responseDays: number): ChapterSeed[] {
           textAr: 'تبدأ المدة في اليوم التالي للحدث المُحرِّك. وإذا صادف آخر يوم يوم عطلة في المنطقة الزمنية الرسمية للقضية، تُمدّ المدة إلى يوم العمل التالي. ويجوز التعبير عن المدد بأيام تقويمية أو أيام عمل.' },
       ],
     },
+    {
+      number: 7, title: 'Constitution of the Tribunal', titleAr: 'تشكيل هيئة التحكيم',
+      summary: 'Appointment of arbitrators, the time allowed to respond to an appointment, default appointment, and constitution.',
+      summaryAr: 'تعيين المحكمين والمهلة المتاحة للرد على التعيين والتعيين التلقائي وتشكيل الهيئة.',
+      rules: [
+        { number: '7.1', title: 'Time to respond to an appointment', titleAr: 'مهلة الرد على التعيين', triggeringEvent: 'ARBITRATOR_INVITED',
+          text: 'An arbitrator invited to serve shall file a conflict-of-interest disclosure and confirm or decline the appointment within the applicable period. If the arbitrator does not respond within that period, the invitation lapses and the appointing authority may proceed, including by a default appointment.',
+          textAr: 'يقدّم المحكّم المدعو للعمل إفصاحاً عن تضارب المصالح ويؤكّد قبوله التعيين أو يرفضه خلال المدة المقررة. وإذا لم يردّ خلال تلك المدة، سقطت الدعوة وجاز لسلطة التعيين المضيّ قدماً، بما في ذلك بالتعيين التلقائي.',
+          deadline: { key: 'ARBITRATOR_ACCEPTANCE', label: 'Arbitrator response to appointment', labelAr: 'رد المحكّم على التعيين', triggerEvent: 'ARBITRATOR_INVITED', days: 7, dayKind: DayKind.CALENDAR, requiredAction: 'File the conflict disclosure and accept or decline the appointment.' } },
+        { number: '7.2', title: 'Default and presiding-arbitrator appointment', titleAr: 'التعيين التلقائي وتعيين رئيس الهيئة',
+          text: 'Where a party fails to nominate within the applicable period, or the two party-appointed arbitrators fail to agree a presiding arbitrator within the applicable period, the appointing authority shall make the appointment.',
+          textAr: 'إذا تخلّف طرف عن الترشيح خلال المدة المقررة، أو لم يتفق المحكّمان المعيّنان من الطرفين على رئيس للهيئة خلال المدة المقررة، تولّت سلطة التعيين إجراء التعيين.' },
+      ],
+    },
   ];
 }
 

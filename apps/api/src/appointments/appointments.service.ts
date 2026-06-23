@@ -5,6 +5,7 @@ import {
   CaseRole,
   CaseStage,
   ChallengeStatus,
+  DeadlineStatus,
   ScreeningSubjectType,
   TribunalComposition,
   TribunalMemberStatus,
@@ -17,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ComplianceService } from '../compliance/compliance.service';
+import { DeadlinesService } from '../deadlines/deadlines.service';
 import { AuthUser } from '../auth/types';
 import {
   ConflictDisclosureDto,
@@ -57,7 +59,15 @@ function memberStatusForVacancy(reason: VacancyReason): TribunalMemberStatus {
   }
 }
 
-const INVITATION_TTL_MS = 14 * 86400000;
+/**
+ * Safe fallback response window (calendar days) used ONLY when the case's pinned
+ * rule set has no ARBITRATOR_ACCEPTANCE deadline definition. The rules-engine
+ * definition is authoritative whenever it exists. Documented in
+ * docs/PROCEDURAL_WORKFLOW.md and docs/DEADLINE_CALCULATION.md.
+ */
+const FALLBACK_RESPONSE_DAYS = 14;
+/** Stable rule deadline key for the arbitrator response/acceptance window. */
+const ACCEPTANCE_DEADLINE_KEY = 'ARBITRATOR_ACCEPTANCE';
 
 /**
  * Tribunal appointment workflow with due-process hardening: invite → conflict
@@ -75,6 +85,7 @@ export class AppointmentsService {
     private readonly access: CaseAccessService,
     private readonly notifications: NotificationsService,
     private readonly compliance: ComplianceService,
+    private readonly deadlines: DeadlinesService,
   ) {}
 
   private async caseRef(caseId: string): Promise<string> {
@@ -98,6 +109,20 @@ export class AppointmentsService {
     if (arbitrator.approvalStatus !== 'APPROVED') {
       throw new BadRequestException('Only approved arbitrators may be invited.');
     }
+
+    // The response window is computed by the rules engine from the case's pinned
+    // rule set (ARBITRATOR_ACCEPTANCE definition); a safe fixed fallback is used
+    // only when no such definition exists. The rule path also persists a Deadline
+    // that supports extension/suspension and reminder scheduling.
+    const dl = await this.deadlines.materialiseRuleDeadline({
+      actorId: actor.id,
+      caseId,
+      definitionKey: ACCEPTANCE_DEADLINE_KEY,
+      triggerDate: new Date(),
+      fallbackDays: FALLBACK_RESPONSE_DAYS,
+      titleOverride: `Arbitrator response — ${String(proposedRole).replaceAll('_', ' ').toLowerCase()}`,
+    });
+
     const invitation = await this.prisma.appointmentInvitation.create({
       data: {
         caseId,
@@ -107,8 +132,17 @@ export class AppointmentsService {
         appointmentMethod: method,
         fillsVacancyUserId: opts.fillsVacancyUserId,
         status: AppointmentStatus.INVITED,
-        expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+        expiresAt: dl.dueAt,
+        deadlineId: dl.deadlineId,
       },
+    });
+    await this.audit.record({
+      userId: actor.id,
+      action: 'APPOINTMENT_DEADLINE_CALCULATED',
+      entityType: 'AppointmentInvitation',
+      entityId: invitation.id,
+      caseId,
+      metadata: { source: dl.source, dueAt: dl.dueAt.toISOString(), definitionKey: ACCEPTANCE_DEADLINE_KEY, deadlineId: dl.deadlineId },
     });
     return { invitation, arbitratorUserId: arbitrator.userId };
   }
@@ -214,18 +248,48 @@ export class AppointmentsService {
   }
 
   /**
-   * Expire invitations whose response window has passed (party silence / arbitrator
-   * non-response). Suitable for a scheduled job; returns how many were expired.
+   * Expire invitations whose response window has passed (party silence /
+   * arbitrator non-response). The window is the linked rules-engine Deadline's
+   * `dueAt` when present — so an EXTENSION (later dueAt) or a SUSPENSION (clock
+   * paused) is honoured and the invitation is NOT expired — falling back to the
+   * invitation's own `expiresAt` only when no Deadline is linked. Suitable for a
+   * scheduled job; returns how many were expired.
    */
   async expireStaleInvitations(): Promise<{ expired: number }> {
-    const res = await this.prisma.appointmentInvitation.updateMany({
-      where: { status: { in: [AppointmentStatus.INVITED, AppointmentStatus.CONFLICT_CHECK] }, expiresAt: { lt: new Date() } },
-      data: { status: AppointmentStatus.EXPIRED },
+    const now = new Date();
+    const candidates = await this.prisma.appointmentInvitation.findMany({
+      where: { status: { in: [AppointmentStatus.INVITED, AppointmentStatus.CONFLICT_CHECK] } },
+      select: { id: true, caseId: true, expiresAt: true, deadlineId: true },
     });
-    if (res.count > 0) {
-      await this.audit.record({ action: 'APPOINTMENT_EXPIRED_SWEEP', entityType: 'AppointmentInvitation', metadata: { count: res.count } });
+    if (candidates.length === 0) return { expired: 0 };
+
+    const deadlineIds = candidates.map((c) => c.deadlineId).filter((d): d is string => !!d);
+    const deadlines = deadlineIds.length
+      ? await this.prisma.deadline.findMany({ where: { id: { in: deadlineIds } }, select: { id: true, dueAt: true, status: true } })
+      : [];
+    const byId = new Map(deadlines.map((d) => [d.id, d]));
+
+    const expiredIds: string[] = [];
+    for (const c of candidates) {
+      const d = c.deadlineId ? byId.get(c.deadlineId) : undefined;
+      let isPast: boolean;
+      if (d) {
+        // A suspended/waived deadline never expires the invitation.
+        if (d.status === DeadlineStatus.SUSPENDED || d.status === DeadlineStatus.WAIVED) continue;
+        isPast = d.dueAt < now;
+      } else {
+        isPast = !!c.expiresAt && c.expiresAt < now;
+      }
+      if (isPast) expiredIds.push(c.id);
     }
-    return { expired: res.count };
+    if (expiredIds.length === 0) return { expired: 0 };
+
+    await this.prisma.appointmentInvitation.updateMany({ where: { id: { in: expiredIds } }, data: { status: AppointmentStatus.EXPIRED } });
+    for (const c of candidates.filter((x) => expiredIds.includes(x.id))) {
+      await this.audit.record({ action: 'APPOINTMENT_INVITATION_EXPIRED', entityType: 'AppointmentInvitation', entityId: c.id, caseId: c.caseId, metadata: { deadlineId: c.deadlineId } });
+    }
+    await this.audit.record({ action: 'APPOINTMENT_EXPIRED_SWEEP', entityType: 'AppointmentInvitation', metadata: { count: expiredIds.length } });
+    return { expired: expiredIds.length };
   }
 
   /** Invitations addressed to the signed-in arbitrator. */

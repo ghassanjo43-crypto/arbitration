@@ -163,9 +163,18 @@ P1.4  APPOINTING-AUTHORITY / DEFAULT-APPOINTMENT ROBUSTNESS  [DONE]   Effort: M
      vacancies, replacements, challenge decisions and constitution. 17 unit tests
      cover silence, non-response, chair-selection, replacement, challenge, and
      sole-vs-three paths.
-  Remaining (lower priority): wire the invitation/response time limits to the
-  rules engine's deadline definitions (today they are a fixed 14-day window +
-  manual/scheduled expiry sweep), and a UI surface for the new actions.
+  Follow-up DONE (2026-06-23): invitation/response time limits are now driven by
+  the rules-engine deadline definitions (migration 20260623130000_appointment_
+  deadline_link). createInvitation computes the response window from the case's
+  pinned rule set (ARBITRATOR_ACCEPTANCE definition, seeded in Ch7) via
+  DeadlinesService.materialiseRuleDeadline — holiday/business-day aware, with a
+  linked Deadline that supports extension/suspension. The expiry sweep keys off
+  the linked Deadline's dueAt/status (extension pushes expiry out; suspension
+  never expires), falling back to a documented fixed 14-day window only when no
+  definition exists. Audit events on calculate/extend/suspend/expire. 5 added
+  tests (normal, expired, suspended, extended, fallback).
+  Remaining (lower priority): a UI surface for the new appointment actions
+  (follow-up #2), and seeding richer per-step appointment deadlines.
 
 
 --------------------------------------------------------------------------------

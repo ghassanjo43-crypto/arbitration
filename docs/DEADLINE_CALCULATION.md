@@ -28,6 +28,15 @@ A `Deadline` is generated from a `RuleDeadlineDefinition` and a
 the rules engine). Provenance is stored: rule, definition key, trigger event,
 trigger date, start date, period, day-kind, holiday calendar, responsible role.
 
+`materialiseRuleDeadline()` is a variant that resolves a definition by key and
+computes a `Deadline` **without** a triggering `CaseProceduralEvent` (the trigger
+date is supplied directly). It powers the **appointment response window**: an
+arbitrator invitation's expiry is computed from the `ARBITRATOR_ACCEPTANCE`
+definition in the case's pinned rule version, with a documented safe fallback
+(14 calendar days) when no definition exists. The invitation links the resulting
+`Deadline`, so extending or suspending it moves or pauses the response window, and
+the appointment expiry sweep honours both.
+
 - **A filing is not complete** until the required files upload successfully and
   the portal issues confirmation; corrupted/failed uploads do not count.
 - **Extensions never silently overwrite** a deadline: a `DeadlineExtension`

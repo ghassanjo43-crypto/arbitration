@@ -144,6 +144,79 @@ export class DeadlinesService {
     return deadline;
   }
 
+  /**
+   * Resolve a rule deadline definition for a case by key and materialise a
+   * Deadline from it — without requiring a triggering CaseProceduralEvent (the
+   * trigger date is supplied directly, e.g. an appointment invitation's creation
+   * moment). Used by the appointments module so invitation response windows are
+   * computed by the rules engine (holiday/business-day aware) rather than a
+   * hard-coded period.
+   *
+   * Returns the computed `dueAt` and `reminderRule` even when no definition
+   * exists in the case's pinned rule version — in that case it is a SAFE
+   * FALLBACK: no Deadline row is created and the caller's `fallbackDays` is used.
+   * The boundary is reported via `source` ('RULE' | 'FALLBACK') so callers (and
+   * the audit trail) can record when the fallback was taken.
+   */
+  async materialiseRuleDeadline(params: {
+    actorId: string;
+    caseId: string;
+    definitionKey: string;
+    triggerDate: Date;
+    fallbackDays: number;
+    fallbackReminderRule?: string;
+    titleOverride?: string;
+  }): Promise<{ deadlineId: string | null; dueAt: Date; reminderRule: string; source: 'RULE' | 'FALLBACK' }> {
+    const { spec } = await this.loadCalendar(null, 'UTC');
+    const link = await this.prisma.caseRuleSet.findUnique({ where: { caseId: params.caseId } });
+    const def = link
+      ? await this.prisma.ruleDeadlineDefinition.findFirst({
+          where: { key: params.definitionKey, rule: { versionId: link.ruleSetVersionId } },
+        })
+      : null;
+
+    if (!def) {
+      // Safe fallback: still holiday/weekend-aware, but no persisted Deadline.
+      const fb = computeDeadline({ triggerDate: params.triggerDate, days: params.fallbackDays, dayKind: 'CALENDAR', calendar: spec });
+      return { deadlineId: null, dueAt: fb.dueAt, reminderRule: params.fallbackReminderRule ?? 'P3D,P1D', source: 'FALLBACK' };
+    }
+
+    const computed = computeDeadline({
+      triggerDate: params.triggerDate,
+      days: def.days,
+      dayKind: def.dayKind === DayKind.BUSINESS ? 'BUSINESS' : 'CALENDAR',
+      calendar: spec,
+    });
+    const deadline = await this.prisma.deadline.create({
+      data: {
+        caseId: params.caseId,
+        title: params.titleOverride ?? def.label,
+        description: def.requiredAction,
+        dueAt: computed.dueAt,
+        timezone: spec.timezone,
+        reminderRule: def.reminderRule,
+        ruleId: def.ruleId,
+        definitionKey: def.key,
+        triggerDate: params.triggerDate,
+        startDate: new Date(`${computed.startCivilDate}T00:00:00.000Z`),
+        days: def.days,
+        dayKind: def.dayKind,
+        responsibleRole: def.responsibleRole,
+        requiredAction: def.requiredAction,
+      },
+    });
+    await this.scheduleReminders(deadline.id, deadline.dueAt, deadline.reminderRule);
+    await this.audit.record({
+      userId: params.actorId,
+      action: 'DEADLINE_GENERATED',
+      entityType: 'Deadline',
+      entityId: deadline.id,
+      caseId: params.caseId,
+      metadata: { definitionKey: def.key, dueAt: computed.dueAt.toISOString(), dayKind: def.dayKind, source: 'appointment' },
+    });
+    return { deadlineId: deadline.id, dueAt: computed.dueAt, reminderRule: def.reminderRule, source: 'RULE' };
+  }
+
   async listForCase(user: AuthUser, caseId: string) {
     await this.access.assertCanAccessCase(user, caseId);
     return this.prisma.deadline.findMany({

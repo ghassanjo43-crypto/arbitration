@@ -52,6 +52,16 @@ paths, not just the happy path:
   Outstanding invitations are reminded (`/remind`) and an **expiry sweep**
   (`/appointments/expire-sweep`) marks non-responses `EXPIRED` after the response
   window; repeated declines are recorded with a reason.
+- **Rules-engine response deadlines.** An invitation's response window is computed
+  by the **rules engine** from the case's pinned rule set (the
+  `ARBITRATOR_ACCEPTANCE` `RuleDeadlineDefinition`, Ch7), not a hard-coded period
+  — so it is holiday/business-day aware and supports **extension** and
+  **suspension** (the linked `Deadline` can be extended/suspended/resumed via the
+  deadlines module, and the expiry sweep honours both: an extended deadline pushes
+  expiry out, a suspended one never expires the invitation). Reminder timing comes
+  from the definition's `reminderRule`. A **safe fixed fallback** (14 calendar
+  days) is used **only** when the case has no such definition, and the fallback is
+  recorded in the audit trail (`APPOINTMENT_DEADLINE_CALCULATED`, `source=FALLBACK`).
 - **Presiding arbitrator (chair).** The two party-appointed co-arbitrators
   nominate the chair (`/tribunal/nominate-chair`, method `CO_ARBITRATOR_NOMINATION`);
   if they cannot agree, the authority appoints the chair by default
@@ -68,8 +78,8 @@ paths, not just the happy path:
 - **Audit & notices** are emitted for invitations, reminders, defaults, chair
   nomination, vacancies, replacements, challenge decisions, and constitution.
 
-Response time limits are currently a fixed window with a manual/scheduled expiry
-sweep; wiring them to the rules-engine deadline definitions is a follow-up.
+Response time limits are driven by the rules-engine deadline definitions (with a
+documented safe fallback); the expiry sweep is run manually or by a scheduled job.
 
 ## Authority boundaries (enforced in code)
 

@@ -713,6 +713,7 @@ model AppointmentInvitation {
   lastReminderAt        DateTime?
   declineReason         String?
   fillsVacancyUserId    String? // userId of the member this invitation replaces
+  deadlineId            String? // rules-engine Deadline driving the response window (soft ref)
   respondedAt           DateTime?
   expiresAt             DateTime?
   createdAt             DateTime          @default(now())

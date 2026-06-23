@@ -56,8 +56,11 @@ function make(over: Record<string, unknown> = {}, membership: Record<string, unk
   };
   const notifications = { dispatch: jest.fn().mockResolvedValue(undefined), notifyCaseMembers: jest.fn().mockResolvedValue(undefined) };
   const compliance = { rescreenForEvent: jest.fn().mockResolvedValue(undefined), assertCaseClearedToProceed: jest.fn().mockResolvedValue(undefined) };
-  const service = new AppointmentsService(prisma as never, audit as never, access as never, notifications as never, compliance as never);
-  return { service, prisma, audit, notifications, compliance };
+  const deadlines = {
+    materialiseRuleDeadline: jest.fn().mockResolvedValue({ deadlineId: null, dueAt: new Date(Date.now() + 14 * 86400000), reminderRule: 'P3D,P1D', source: 'FALLBACK' }),
+  };
+  const service = new AppointmentsService(prisma as never, audit as never, access as never, notifications as never, compliance as never, deadlines as never);
+  return { service, prisma, audit, notifications, compliance, deadlines };
 }
 
 const activeMember = (role: TribunalRole, over: Record<string, unknown> = {}) => ({
@@ -82,9 +85,15 @@ describe('AppointmentsService — default appointment & lifecycle', () => {
   });
 
   it('expires invitations whose response window has elapsed (silence/non-response)', async () => {
-    const { service, prisma } = make({ appointmentInvitation: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) } });
-    await expect(service.expireStaleInvitations()).resolves.toEqual({ expired: 2 });
-    expect((prisma.appointmentInvitation as { updateMany: jest.Mock }).updateMany).toHaveBeenCalled();
+    const past = new Date(Date.now() - 86400000);
+    const { service, prisma } = make({
+      appointmentInvitation: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'inv1', caseId: 'c1', expiresAt: past, deadlineId: null }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    await expect(service.expireStaleInvitations()).resolves.toEqual({ expired: 1 });
+    expect((prisma.appointmentInvitation as { updateMany: jest.Mock }).updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: AppointmentStatus.EXPIRED } }));
   });
 
   it('reminds an arbitrator while a response is outstanding, but not after', async () => {
@@ -94,6 +103,53 @@ describe('AppointmentsService — default appointment & lifecycle', () => {
 
     const answered = make({ appointmentInvitation: { findUnique: jest.fn().mockResolvedValue({ id: 'inv1', caseId: 'c1', status: AppointmentStatus.ACCEPTED, arbitrator: { userId: 'arbU' } }) } });
     await expect(answered.service.sendReminder(registrar, 'inv1')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('AppointmentsService — rules-engine response deadlines', () => {
+  const DAY = 86400000;
+
+  it('sets the invitation expiry from the rule-computed deadline and links it', async () => {
+    const due = new Date(Date.now() + 7 * DAY);
+    const { service, prisma, audit, deadlines } = make();
+    (deadlines.materialiseRuleDeadline as jest.Mock).mockResolvedValueOnce({ deadlineId: 'dl1', dueAt: due, reminderRule: 'P3D,P1D', source: 'RULE' });
+    const inv = await service.invite(registrar, 'c1', { arbitratorId: 'prof1', proposedRole: TribunalRole.SOLE }) as { expiresAt: Date; deadlineId: string };
+    expect(deadlines.materialiseRuleDeadline).toHaveBeenCalledWith(expect.objectContaining({ definitionKey: 'ARBITRATOR_ACCEPTANCE', caseId: 'c1' }));
+    expect((prisma.appointmentInvitation as { create: jest.Mock }).create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ expiresAt: due, deadlineId: 'dl1' }) }));
+    expect(inv.deadlineId).toBe('dl1');
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'APPOINTMENT_DEADLINE_CALCULATED', metadata: expect.objectContaining({ source: 'RULE' }) }));
+  });
+
+  it('falls back to a fixed window when no rule deadline definition exists', async () => {
+    const { service, audit, deadlines } = make(); // default mock returns source FALLBACK, deadlineId null
+    await service.invite(registrar, 'c1', { arbitratorId: 'prof1', proposedRole: TribunalRole.SOLE });
+    expect(deadlines.materialiseRuleDeadline).toHaveBeenCalledWith(expect.objectContaining({ fallbackDays: 14 }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'APPOINTMENT_DEADLINE_CALCULATED', metadata: expect.objectContaining({ source: 'FALLBACK' }) }));
+  });
+
+  it('expires an invitation past its linked deadline due date', async () => {
+    const { service, prisma } = make({
+      appointmentInvitation: { findMany: jest.fn().mockResolvedValue([{ id: 'inv1', caseId: 'c1', expiresAt: null, deadlineId: 'dl1' }]), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      deadline: { findMany: jest.fn().mockResolvedValue([{ id: 'dl1', dueAt: new Date(Date.now() - DAY), status: 'OPEN' }]) },
+    });
+    await expect(service.expireStaleInvitations()).resolves.toEqual({ expired: 1 });
+  });
+
+  it('does NOT expire when the linked deadline is suspended', async () => {
+    const { service, prisma } = make({
+      appointmentInvitation: { findMany: jest.fn().mockResolvedValue([{ id: 'inv1', caseId: 'c1', expiresAt: new Date(Date.now() - DAY), deadlineId: 'dl1' }]), updateMany: jest.fn() },
+      deadline: { findMany: jest.fn().mockResolvedValue([{ id: 'dl1', dueAt: new Date(Date.now() - DAY), status: 'SUSPENDED' }]) },
+    });
+    await expect(service.expireStaleInvitations()).resolves.toEqual({ expired: 0 });
+    expect((prisma.appointmentInvitation as { updateMany: jest.Mock }).updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does NOT expire when the linked deadline was extended into the future', async () => {
+    const { service } = make({
+      appointmentInvitation: { findMany: jest.fn().mockResolvedValue([{ id: 'inv1', caseId: 'c1', expiresAt: new Date(Date.now() - DAY), deadlineId: 'dl1' }]), updateMany: jest.fn() },
+      deadline: { findMany: jest.fn().mockResolvedValue([{ id: 'dl1', dueAt: new Date(Date.now() + 5 * DAY), status: 'EXTENDED' }]) },
+    });
+    await expect(service.expireStaleInvitations()).resolves.toEqual({ expired: 0 });
   });
 });
 
