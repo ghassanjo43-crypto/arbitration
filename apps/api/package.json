@@ -19,6 +19,7 @@
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:seed:showcase": "ts-node --transpile-only prisma/seed-showcase-standalone.ts",
     "db:seed:topup": "ts-node --transpile-only prisma/seed-rules-topup.ts",
+    "db:bootstrap:demo": "node scripts/render-bootstrap-demo.mjs",
     "db:embedded": "node scripts/db-embedded.mjs",
     "verify:backup": "node scripts/verify-backup-readiness.mjs"
   },
