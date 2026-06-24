@@ -29,20 +29,26 @@ services:
       npm run build -w @gaap/shared &&
       npm run prisma:generate -w @gaap/api &&
       npm run build -w @gaap/api
-    # Runs after build, before the new version receives traffic. Idempotent:
+    # NOTE: Render only runs `preDeployCommand` on PAID instance types. On the
+    # free plan it is silently skipped, so DB provisioning must happen in the
+    # startCommand instead (which always runs). The chain below is idempotent:
     # migrate deploy is safe to re-run; the base seed self-skips once data
     # exists; the top-up adds rules/fees demo data section-by-section, each
-    # guarded so it is safe to re-run on every deploy. The demo bootstrap is a
-    # no-op unless BOOTSTRAP_DEMO=true: when enabled it resets/creates the demo
-    # accounts with the live PASSWORD_PEPPER and loads showcase GAAP-2026-000010
-    # (DEMO_PASSWORD supplies the password; nothing is hard-coded). Turn the flag
-    # off after it runs once. See apps/api/scripts/render-bootstrap-demo.mjs.
-    preDeployCommand: >-
+    # guarded; the demo bootstrap is a no-op unless BOOTSTRAP_DEMO=true (when
+    # enabled it resets/creates the demo accounts with the live PASSWORD_PEPPER
+    # and loads showcase GAAP-2026-000010; DEMO_PASSWORD supplies the password,
+    # nothing is hard-coded). Seed/bootstrap failures are non-fatal so the API
+    # still starts; only the migration is allowed to abort startup. Turn
+    # BOOTSTRAP_DEMO off after it has run once. If you later upgrade to a paid
+    # plan, you can move migrate back into preDeployCommand for zero-traffic
+    # migrations. See apps/api/scripts/render-bootstrap-demo.mjs.
+    startCommand: >-
       npm run db:migrate:deploy -w @gaap/api &&
-      npm run db:seed -w @gaap/api &&
-      npm run db:seed:topup -w @gaap/api &&
-      npm run db:bootstrap:demo -w @gaap/api
-    startCommand: npm run start:prod -w @gaap/api
+      { npm run db:seed -w @gaap/api &&
+        npm run db:seed:topup -w @gaap/api &&
+        npm run db:bootstrap:demo -w @gaap/api ||
+        echo '[startup] seed/bootstrap step failed — continuing to start API'; } &&
+      npm run start:prod -w @gaap/api
     envVars:
       - key: NODE_ENV
         value: production
