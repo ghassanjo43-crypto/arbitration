@@ -35,6 +35,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { DeliverabilityModule } from './deliverability/deliverability.module';
 import { RetentionModule } from './retention/retention.module';
+import { AdminModule } from './admin/admin.module';
 import { HealthController } from './health/health.controller';
 import { ReadinessService } from './health/readiness.service';
 import { ObservabilityService } from './common/observability/observability.service';
@@ -90,6 +91,7 @@ import { CorrelationIdMiddleware } from './common/observability/correlation-id.m
     ComplianceModule,
     DeliverabilityModule,
     RetentionModule,
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [
