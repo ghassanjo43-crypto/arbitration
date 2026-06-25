@@ -136,7 +136,7 @@ export function AdminUsers() {
         )}
 
         {isLoading ? <p className="muted" style={{ marginTop: 'var(--sp-3)' }}>Loading…</p> : (
-          <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: 'var(--sp-3)' }}>
+          <div className="card admin-users" style={{ padding: 0, overflow: 'hidden', marginTop: 'var(--sp-3)' }}>
             <table className="table">
               <thead>
                 <tr><th>Email</th><th>Name</th><th>Roles</th><th>Status</th><th>Actions</th></tr>

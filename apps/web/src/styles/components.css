@@ -181,6 +181,63 @@
 .table td { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-subtle); }
 .table tr:hover td { background: var(--bg-raised); }
 
+/* Compact, refined density for the admin users table (styling only — scoped so
+   no other table/badge/button on the site is affected). */
+.admin-users .table { font-size: 13px; }
+.admin-users .table th {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 0.85rem;
+}
+.admin-users .table td {
+  padding: 0.45rem 0.85rem;
+  vertical-align: middle;
+  line-height: 1.35;
+}
+
+/* Tighter, lighter badges (roles + statuses, e.g. ARBITRATOR / ACTIVE). */
+.admin-users .badge {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  padding: 0.12rem 0.5rem;
+  gap: 4px;
+}
+
+/* Compact, elegant action buttons (Edit / Roles / Reset password / Remove / Reactivate). */
+.admin-users .btn {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--r-sm);
+}
+
+/* Smaller status dropdown, aligned with the buttons. */
+.admin-users .select {
+  width: auto;
+  font-size: 12px;
+  padding: 0.32rem 1.6rem 0.32rem 0.6rem;
+  border-radius: var(--r-sm);
+}
+
+/* Keep inline edit inputs compact to match. */
+.admin-users .input {
+  font-size: 13px;
+  padding: 0.32rem 0.55rem;
+  border-radius: var(--r-sm);
+}
+
+/* Elegant wrapping for long emails/names without ballooning row height. */
+.admin-users .table td:nth-child(1),
+.admin-users .table td:nth-child(2) {
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
+
+/* Tidy, even spacing within the actions cell. */
+.admin-users .table td:last-child > div { gap: 6px; row-gap: 6px; }
+
 /* Timeline */
 .timeline { position: relative; padding-inline-start: var(--sp-5); }
 .timeline::before {
