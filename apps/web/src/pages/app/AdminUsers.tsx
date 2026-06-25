@@ -8,6 +8,8 @@ interface AdminUser {
   id: string;
   email: string;
   displayName: string;
+  firstName: string | null;
+  lastName: string | null;
   status: string;
   emailVerified: boolean;
   roles: string[];
@@ -16,6 +18,11 @@ interface AdminUser {
 
 const STATUS_OPTIONS = ['ACTIVE', 'SUSPENDED', 'DEACTIVATED'];
 const ASSIGNABLE_ROLES = Object.values(Role);
+
+function apiError(e: unknown): string {
+  const m = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  return Array.isArray(m) ? m.join('; ') : (m ?? 'Action not permitted.');
+}
 
 export function AdminUsers() {
   const { user } = useAuth();
@@ -27,7 +34,12 @@ export function AdminUsers() {
   const [search, setSearch] = useState('');
   const [editingRoles, setEditingRoles] = useState<string | null>(null);
   const [roleDraft, setRoleDraft] = useState<string[]>([]);
+  const [editingDetails, setEditingDetails] = useState<string | null>(null);
+  const [detailDraft, setDetailDraft] = useState<{ firstName: string; lastName: string; email: string; emailVerified: boolean }>({ firstName: '', lastName: '', email: '', emailVerified: false });
+  const [showCreate, setShowCreate] = useState(false);
+  const [createDraft, setCreateDraft] = useState<{ email: string; firstName: string; lastName: string; roles: string[] }>({ email: '', firstName: '', lastName: '', roles: [] });
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<{ data: AdminUser[]; total: number }>({
     queryKey: ['admin-users', search],
@@ -36,25 +48,41 @@ export function AdminUsers() {
   });
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['admin-users'] });
-  const wrap = <T,>(fn: () => Promise<T>) => fn().catch((e: { response?: { data?: { message?: string } } }) => {
-    setError(e.response?.data?.message ?? 'Action not permitted.');
-  });
+  const wrap = <T,>(fn: () => Promise<T>) => fn().catch((e: unknown) => { setError(apiError(e)); setNotice(null); });
 
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/admin/users/${id}`, { status }),
     onSuccess: invalidate,
   });
-  const remove = useMutation({
-    mutationFn: (id: string) => api.delete(`/admin/users/${id}`),
-    onSuccess: invalidate,
-  });
-  const restore = useMutation({
-    mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}),
-    onSuccess: invalidate,
-  });
+  const remove = useMutation({ mutationFn: (id: string) => api.delete(`/admin/users/${id}`), onSuccess: invalidate });
+  const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
     onSuccess: () => { setEditingRoles(null); invalidate(); },
+  });
+  const saveDetails = useMutation({
+    mutationFn: ({ id, ...body }: { id: string; firstName: string; lastName: string; email: string; emailVerified: boolean }) =>
+      api.patch(`/admin/users/${id}`, body),
+    onSuccess: () => { setEditingDetails(null); setNotice('User details updated.'); setError(null); invalidate(); },
+  });
+  const createUser = useMutation({
+    mutationFn: (body: { email: string; firstName: string; lastName: string; roles: string[] }) =>
+      api.post('/admin/users', body).then((r) => r.data as { temporaryPassword?: string }),
+    onSuccess: (res) => {
+      setShowCreate(false);
+      setCreateDraft({ email: '', firstName: '', lastName: '', roles: [] });
+      setNotice(res.temporaryPassword ? `User created. Temporary password (shown once): ${res.temporaryPassword}` : 'User created.');
+      setError(null);
+      invalidate();
+    },
+  });
+  const resetPassword = useMutation({
+    mutationFn: ({ id, sendEmail }: { id: string; sendEmail: boolean }) =>
+      api.post(`/admin/users/${id}/reset-password`, { sendEmail }).then((r) => r.data as { temporaryPassword?: string; mode: string }),
+    onSuccess: (res) => {
+      setNotice(res.temporaryPassword ? `Password reset. Temporary password (shown once): ${res.temporaryPassword}` : 'Password-reset link e-mailed to the user.');
+      setError(null);
+    },
   });
 
   if (!canManage) {
@@ -66,17 +94,49 @@ export function AdminUsers() {
       <div className="container">
         <p className="eyebrow">Administration</p>
         <h1>User management</h1>
-        <p className="muted">Edit account status and roles, or remove (deactivate) any user. Removal is a soft delete — records are retained and sessions are revoked.</p>
+        <p className="muted">Create, edit and manage platform accounts: details, roles, status and passwords. This is platform administration only — it grants no access to tribunal deliberations or case merits, which remain gated by case membership. Removal is a soft delete: records are retained and sessions are revoked.</p>
 
+        {notice && <div className="alert alert--success" role="status" onClick={() => setNotice(null)}>{notice}</div>}
         {error && <div className="alert alert--danger" role="alert" onClick={() => setError(null)}>{error}</div>}
 
-        <form className="directory-search" onSubmit={(e) => { e.preventDefault(); setSearch(q); }} role="search">
-          <input className="input" placeholder="Search by email or name" value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="btn btn--primary" type="submit">Search</button>
-        </form>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <form className="directory-search" onSubmit={(e) => { e.preventDefault(); setSearch(q); }} role="search">
+            <input className="input" placeholder="Search by email or name" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="btn btn--primary" type="submit">Search</button>
+          </form>
+          <button className="btn btn--secondary" onClick={() => { setShowCreate((s) => !s); setError(null); }}>{showCreate ? 'Close' : 'Create user'}</button>
+        </div>
 
-        {isLoading ? <p className="muted">Loading…</p> : (
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {showCreate && (
+          <section className="card" style={{ marginTop: 'var(--sp-3)' }}>
+            <h2 className="card__title">Create user</h2>
+            <form
+              onSubmit={(e) => { e.preventDefault(); if (createDraft.email && createDraft.firstName && createDraft.lastName) void wrap(() => createUser.mutateAsync(createDraft)); }}
+              style={{ display: 'grid', gap: 'var(--sp-2)', maxWidth: 520 }}
+            >
+              <input className="input" type="email" placeholder="Email" value={createDraft.email} onChange={(e) => setCreateDraft((d) => ({ ...d, email: e.target.value }))} required />
+              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                <input className="input" placeholder="First name" value={createDraft.firstName} onChange={(e) => setCreateDraft((d) => ({ ...d, firstName: e.target.value }))} required />
+                <input className="input" placeholder="Last name" value={createDraft.lastName} onChange={(e) => setCreateDraft((d) => ({ ...d, lastName: e.target.value }))} required />
+              </div>
+              <fieldset style={{ border: '1px solid var(--c-border)', borderRadius: 6, padding: 'var(--sp-2)' }}>
+                <legend className="field__hint">Roles {canManageRoles ? '' : '(staff/admin roles need super-admin)'}</legend>
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <label key={r} className="check-row" style={{ display: 'inline-flex', marginInlineEnd: 'var(--sp-3)' }}>
+                    <input type="checkbox" checked={createDraft.roles.includes(r)}
+                      onChange={(e) => setCreateDraft((d) => ({ ...d, roles: e.target.checked ? [...d.roles, r] : d.roles.filter((x) => x !== r) }))}
+                    /> {ROLE_LABELS[r]}
+                  </label>
+                ))}
+              </fieldset>
+              <p className="field__hint">A temporary password is generated and shown once on creation.</p>
+              <div><button className="btn btn--primary" type="submit" disabled={createUser.isPending}>Create user</button></div>
+            </form>
+          </section>
+        )}
+
+        {isLoading ? <p className="muted" style={{ marginTop: 'var(--sp-3)' }}>Loading…</p> : (
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: 'var(--sp-3)' }}>
             <table className="table">
               <thead>
                 <tr><th>Email</th><th>Name</th><th>Roles</th><th>Status</th><th>Actions</th></tr>
@@ -88,8 +148,28 @@ export function AdminUsers() {
                   const locked = isSuper && !canManageRoles; // a plain admin cannot touch a super-admin
                   return (
                     <tr key={u.id} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
-                      <td>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}</td>
-                      <td>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</td>
+                      <td>
+                        {editingDetails === u.id ? (
+                          <input className="input" type="email" value={detailDraft.email} onChange={(e) => setDetailDraft((d) => ({ ...d, email: e.target.value }))} />
+                        ) : (
+                          <>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}</>
+                        )}
+                      </td>
+                      <td>
+                        {editingDetails === u.id ? (
+                          <div style={{ display: 'grid', gap: 4 }}>
+                            <input className="input" placeholder="First" value={detailDraft.firstName} onChange={(e) => setDetailDraft((d) => ({ ...d, firstName: e.target.value }))} />
+                            <input className="input" placeholder="Last" value={detailDraft.lastName} onChange={(e) => setDetailDraft((d) => ({ ...d, lastName: e.target.value }))} />
+                            <label className="check-row"><input type="checkbox" checked={detailDraft.emailVerified} onChange={(e) => setDetailDraft((d) => ({ ...d, emailVerified: e.target.checked }))} /> Email verified</label>
+                            <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                              <button className="btn btn--primary btn--sm" onClick={() => wrap(() => saveDetails.mutateAsync({ id: u.id, ...detailDraft }))}>Save</button>
+                              <button className="btn btn--ghost btn--sm" onClick={() => setEditingDetails(null)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</>
+                        )}
+                      </td>
                       <td>
                         {editingRoles === u.id ? (
                           <div className="role-editor">
@@ -118,20 +198,28 @@ export function AdminUsers() {
                             className="select"
                             style={{ width: 'auto' }}
                             value={STATUS_OPTIONS.includes(u.status) ? u.status : ''}
-                            disabled={locked || (isSelf)}
+                            disabled={locked || isSelf}
                             onChange={(e) => wrap(() => setStatus.mutateAsync({ id: u.id, status: e.target.value }))}
                           >
                             {!STATUS_OPTIONS.includes(u.status) && <option value="">{u.status}</option>}
                             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
+                          {!u.deletedAt && !locked && editingDetails !== u.id && (
+                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); }}>Edit</button>
+                          )}
                           {canManageRoles && !u.deletedAt && (
-                            <button className="btn btn--ghost" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>Roles</button>
+                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>Roles</button>
+                          )}
+                          {!u.deletedAt && !locked && (
+                            <button className="btn btn--ghost btn--sm" disabled={resetPassword.isPending}
+                              onClick={() => { const email = confirm(`Reset password for ${u.email}?\n\nOK = e-mail a reset link to the user.\nCancel = generate a temporary password to show here.`); void wrap(() => resetPassword.mutateAsync({ id: u.id, sendEmail: email })); }}
+                            >Reset password</button>
                           )}
                           {u.deletedAt ? (
-                            <button className="btn btn--ghost" onClick={() => wrap(() => restore.mutateAsync(u.id))}>Restore</button>
+                            <button className="btn btn--ghost btn--sm" onClick={() => wrap(() => restore.mutateAsync(u.id))}>Restore</button>
                           ) : (
                             <button
-                              className="btn btn--ghost"
+                              className="btn btn--ghost btn--sm"
                               style={{ color: 'var(--c-danger)' }}
                               disabled={locked || isSelf}
                               onClick={() => { if (confirm(`Remove ${u.email}? This deactivates the account and revokes sessions.`)) void wrap(() => remove.mutateAsync(u.id)); }}

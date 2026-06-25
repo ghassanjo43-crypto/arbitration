@@ -7,7 +7,7 @@ import { PermissionsGuard } from '../authz/permissions.guard';
 import { RequirePermissions } from '../authz/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { SetRolesDto, UpdateUserDto } from './dto';
+import { CreateUserDto, ResetPasswordDto, SetRolesDto, UpdateUserDto } from './dto';
 
 @ApiTags('admin-users')
 @ApiBearerAuth()
@@ -32,6 +32,12 @@ export class UsersController {
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
+  }
+
+  @Post()
+  @RequirePermissions(Permission.USER_MANAGE)
+  create(@CurrentUser() actor: AuthUser, @Body() dto: CreateUserDto) {
+    return this.users.create(actor, dto);
   }
 
   @Get(':id')
@@ -63,5 +69,11 @@ export class UsersController {
   @RequirePermissions(Permission.USER_MANAGE)
   restore(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.users.restore(actor, id);
+  }
+
+  @Post(':id/reset-password')
+  @RequirePermissions(Permission.USER_MANAGE)
+  resetPassword(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ResetPasswordDto) {
+    return this.users.resetPassword(actor, id, dto);
   }
 }

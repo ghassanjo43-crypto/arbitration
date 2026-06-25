@@ -47,4 +47,27 @@ describe('Role/permission matrix invariants', () => {
   it('classifies all institutional roles as staff', () => {
     expect(STAFF_ROLES).toEqual(expect.arrayContaining([Role.REGISTRAR, Role.COUNCIL_MEMBER, Role.ADMIN, Role.SUPER_ADMIN]));
   });
+
+  // ---- User-administration boundary (platform admin must not be case/tribunal power) ----
+
+  it('restricts user:manage to ADMIN and SUPER_ADMIN only', () => {
+    for (const role of ALL_ROLES) {
+      const held = ROLE_PERMISSIONS[role];
+      if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
+        expect(held).toContain(Permission.USER_MANAGE);
+      } else {
+        expect(held).not.toContain(Permission.USER_MANAGE);
+      }
+    }
+  });
+
+  it('keeps the super administrator out of tribunal confidentiality and award powers', () => {
+    // Platform user-administration must never imply deliberation/merits access.
+    const su = ROLE_PERMISSIONS[Role.SUPER_ADMIN];
+    expect(su).not.toContain(Permission.DELIBERATION_PARTICIPATE);
+    // Super admin holds NO case-merits institutional powers (those are the registrar's,
+    // and tribunal/award authority is only ever granted via case membership).
+    expect(su).not.toContain(Permission.CASE_REGISTER);
+    expect(su).not.toContain(Permission.CASE_MANAGE_SERVICE);
+  });
 });
