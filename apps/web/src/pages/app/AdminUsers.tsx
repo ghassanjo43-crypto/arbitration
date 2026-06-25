@@ -146,6 +146,10 @@ export function AdminUsers() {
                   const isSelf = u.id === user?.id;
                   const isSuper = u.roles.includes(Role.SUPER_ADMIN);
                   const locked = isSuper && !canManageRoles; // a plain admin cannot touch a super-admin
+                  // Account lifecycle is driven by STATUS, never by deletedAt or
+                  // verification. An ACTIVE account is active even if unverified or
+                  // carrying a stray deletedAt; only SUSPENDED/DEACTIVATED is inactive.
+                  const isActive = u.status === 'ACTIVE';
                   return (
                     <tr key={u.id} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
                       <td>
@@ -194,36 +198,45 @@ export function AdminUsers() {
                       <td><span className={`badge ${u.status === 'ACTIVE' ? 'badge--success' : u.status === 'SUSPENDED' ? 'badge--warning' : ''}`}>{u.status.replaceAll('_', ' ')}</span></td>
                       <td>
                         <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <select
-                            className="select"
-                            style={{ width: 'auto' }}
-                            value={STATUS_OPTIONS.includes(u.status) ? u.status : ''}
-                            disabled={locked || isSelf}
-                            onChange={(e) => wrap(() => setStatus.mutateAsync({ id: u.id, status: e.target.value }))}
-                          >
-                            {!STATUS_OPTIONS.includes(u.status) && <option value="">{u.status}</option>}
-                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                          {!u.deletedAt && !locked && editingDetails !== u.id && (
+                          {/* Edit / Roles / Reset are management actions available regardless
+                              of lifecycle status (a super-admin may still administer a
+                              suspended account); only super-admin-locked rows hide them. */}
+                          {!locked && editingDetails !== u.id && (
                             <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); }}>Edit</button>
                           )}
-                          {canManageRoles && !u.deletedAt && (
+                          {canManageRoles && (
                             <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>Roles</button>
                           )}
-                          {!u.deletedAt && !locked && (
+                          {!locked && (
                             <button className="btn btn--ghost btn--sm" disabled={resetPassword.isPending}
                               onClick={() => { const email = confirm(`Reset password for ${u.email}?\n\nOK = e-mail a reset link to the user.\nCancel = generate a temporary password to show here.`); void wrap(() => resetPassword.mutateAsync({ id: u.id, sendEmail: email })); }}
                             >Reset password</button>
                           )}
-                          {u.deletedAt ? (
-                            <button className="btn btn--ghost btn--sm" onClick={() => wrap(() => restore.mutateAsync(u.id))}>Restore</button>
+
+                          {isActive ? (
+                            <>
+                              {/* Active account: Suspend / Deactivate (no Restore). */}
+                              <select
+                                className="select"
+                                style={{ width: 'auto' }}
+                                aria-label={`Set status for ${u.email}`}
+                                value={u.status}
+                                disabled={locked || isSelf}
+                                onChange={(e) => wrap(() => setStatus.mutateAsync({ id: u.id, status: e.target.value }))}
+                              >
+                                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              <button
+                                className="btn btn--ghost btn--sm"
+                                style={{ color: 'var(--c-danger)' }}
+                                disabled={locked || isSelf}
+                                onClick={() => { if (confirm(`Remove ${u.email}? This deactivates the account and revokes sessions.`)) void wrap(() => remove.mutateAsync(u.id)); }}
+                              >Remove</button>
+                            </>
                           ) : (
-                            <button
-                              className="btn btn--ghost btn--sm"
-                              style={{ color: 'var(--c-danger)' }}
-                              disabled={locked || isSelf}
-                              onClick={() => { if (confirm(`Remove ${u.email}? This deactivates the account and revokes sessions.`)) void wrap(() => remove.mutateAsync(u.id)); }}
-                            >Remove</button>
+                            /* Inactive account (SUSPENDED/DEACTIVATED/soft-deleted):
+                               Reactivate is the primary action — no Suspend/Deactivate. */
+                            <button className="btn btn--secondary btn--sm" disabled={locked} onClick={() => wrap(() => restore.mutateAsync(u.id))}>Reactivate</button>
                           )}
                         </div>
                       </td>
