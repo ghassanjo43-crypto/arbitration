@@ -181,6 +181,10 @@
 .table td { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-subtle); }
 .table tr:hover td { background: var(--bg-raised); }
 
+/* In-app Back / Dashboard navigation bar (authenticated pages). */
+.page-nav { padding-top: var(--sp-4); }
+.page-nav__inner { display: flex; gap: var(--sp-2); align-items: center; }
+
 /* Compact, refined density for the admin users table (styling only — scoped so
    no other table/badge/button on the site is affected). */
 .admin-users .table { font-size: 13px; }

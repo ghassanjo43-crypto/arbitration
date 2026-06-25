@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { PublicLayout } from './components/layout/PublicLayout';
+import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { Home } from './pages/Home';
 import { ArbitratorDirectory } from './pages/ArbitratorDirectory';
@@ -57,14 +58,17 @@ export default function App() {
 
           <Route path="app" element={<ProtectedRoute />}>
             <Route index element={<Dashboard />} />
-            <Route path="cases/:id" element={<CaseWorkspace />} />
-            <Route path="desk/registrar" element={<RegistrarDashboard />} />
-            <Route path="desk/arbitrator" element={<ArbitratorDashboard />} />
-            <Route path="desk/finance" element={<FinanceDashboard />} />
-            <Route path="admin/content" element={<AdminContent />} />
-            <Route path="admin/users" element={<AdminUsers />} />
-            <Route path="admin/rules" element={<AdminRulesReview />} />
-            <Route path="admin/retention" element={<AdminRetention />} />
+            {/* Inner pages get a consistent Back / Dashboard bar via AppLayout. */}
+            <Route element={<AppLayout />}>
+              <Route path="cases/:id" element={<CaseWorkspace />} />
+              <Route path="desk/registrar" element={<RegistrarDashboard />} />
+              <Route path="desk/arbitrator" element={<ArbitratorDashboard />} />
+              <Route path="desk/finance" element={<FinanceDashboard />} />
+              <Route path="admin/content" element={<AdminContent />} />
+              <Route path="admin/users" element={<AdminUsers />} />
+              <Route path="admin/rules" element={<AdminRulesReview />} />
+              <Route path="admin/retention" element={<AdminRetention />} />
+            </Route>
           </Route>
 
           <Route path="*" element={<NotFound />} />
