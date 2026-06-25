@@ -5,8 +5,26 @@ import { Permission, Role } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../auth/types';
-import { ExecuteSweepDto, PlaceLegalHoldDto, ReleaseLegalHoldDto } from './dto';
-import { CategoryPolicy, DEFAULT_RETENTION_POLICY, RETENTION_CATEGORIES, RetentionCategory } from './retention-policy';
+import { DraftPolicyDto, ExecuteSweepDto, PlaceLegalHoldDto, ReleaseLegalHoldDto, ReviewPolicyDto } from './dto';
+import { CategoryPolicy, DEFAULT_RETENTION_POLICY, RETENTION_CATEGORIES, RetentionBehavior, RetentionCategory, SAFEGUARDED_CATEGORIES } from './retention-policy';
+
+const POLICY_KEY = 'retention.policy';
+const DRAFT_KEY = 'retention.policy.draft';
+
+type PolicyOverride = { days?: number; behavior?: RetentionBehavior; note?: string };
+type DraftStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
+interface PolicyDraftState {
+  overrides: Partial<Record<RetentionCategory, PolicyOverride>>;
+  status: DraftStatus;
+  proposedById: string;
+  proposedByEmail: string;
+  proposedAt: string;
+  reviewedById?: string;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
+  reviewDecision?: 'APPROVE' | 'REJECT';
+  reviewNote?: string;
+}
 
 const TERMINAL_STAGES: CaseStage[] = [CaseStage.CLOSED, CaseStage.TERMINATED, CaseStage.WITHDRAWN, CaseStage.SETTLED];
 
@@ -36,35 +54,201 @@ export class RetentionService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Manage = edit/activate policy, release holds, run/execute sweeps (Super Admin). */
   private assertCanManage(user: AuthUser) {
     if (!user.permissions.includes(Permission.SETTINGS_MANAGE)) {
       throw new ForbiddenException('Records retention requires the settings-management permission.');
     }
   }
 
+  /** View = read policy + legal holds (Super Admin, Council reviewer, or Registrar). */
+  private assertCanView(user: AuthUser) {
+    const ok =
+      user.permissions.includes(Permission.SETTINGS_MANAGE) ||
+      user.permissions.includes(Permission.POLICY_MANAGE) ||
+      user.permissions.includes(Permission.CASE_MANAGE_SERVICE);
+    if (!ok) throw new ForbiddenException('You do not have permission to view retention settings.');
+  }
+
+  /** Review = approve/reject a policy draft (Council / legal reviewer). */
+  private assertCanReview(user: AuthUser) {
+    if (!user.permissions.includes(Permission.POLICY_MANAGE)) {
+      throw new ForbiddenException('Reviewing a retention policy change requires the policy-management (council) permission.');
+    }
+  }
+
+  /** Request/place a legal hold (Super Admin or Registrar). Holds only BLOCK deletion. */
+  private assertCanRequestHold(user: AuthUser) {
+    const ok = user.permissions.includes(Permission.SETTINGS_MANAGE) || user.permissions.includes(Permission.CASE_MANAGE_SERVICE);
+    if (!ok) throw new ForbiddenException('Placing a legal hold requires settings-management or case-service permission.');
+  }
+
   // ---- Policy --------------------------------------------------------------
 
-  /** Effective policy: defaults merged with any `retention.policy` SystemSetting day overrides. */
+  /**
+   * Effective policy: defaults merged with the active `retention.policy` overrides
+   * (days, behaviour and note). Safeguarded categories (awards, audit log, service
+   * certificates) are always clamped to RETAIN_FOREVER so a policy edit can never
+   * make them deletable.
+   */
   async getPolicy(): Promise<Record<RetentionCategory, CategoryPolicy>> {
     const policy: Record<RetentionCategory, CategoryPolicy> = JSON.parse(JSON.stringify(DEFAULT_RETENTION_POLICY));
-    const setting = await this.prisma.systemSetting.findUnique({ where: { key: 'retention.policy' } });
-    if (setting) {
-      try {
-        const overrides = JSON.parse(setting.value) as Partial<Record<RetentionCategory, { days?: number }>>;
-        for (const cat of RETENTION_CATEGORIES) {
-          if (overrides[cat]?.days != null) policy[cat].days = overrides[cat]!.days!;
-        }
-      } catch {
-        this.logger.warn('retention.policy SystemSetting is not valid JSON; using defaults.');
-      }
+    const overrides = await this.readOverrides(POLICY_KEY);
+    for (const cat of RETENTION_CATEGORIES) {
+      const o = overrides[cat];
+      if (!o) continue;
+      if (o.days != null) policy[cat].days = o.days;
+      if (o.behavior != null) policy[cat].behavior = o.behavior;
+      if (o.note != null) policy[cat].note = o.note;
+    }
+    // Safeguard clamp — never deletable regardless of stored override.
+    for (const cat of SAFEGUARDED_CATEGORIES) {
+      if (policy[cat as RetentionCategory]) policy[cat as RetentionCategory].behavior = 'RETAIN_FOREVER';
     }
     return policy;
+  }
+
+  /** View the effective policy (gated). */
+  async viewPolicy(user: AuthUser) {
+    this.assertCanView(user);
+    return this.getPolicy();
+  }
+
+  private async readOverrides(key: string): Promise<Partial<Record<RetentionCategory, PolicyOverride>>> {
+    const setting = await this.prisma.systemSetting.findUnique({ where: { key } });
+    if (!setting) return {};
+    try {
+      return JSON.parse(setting.value) as Partial<Record<RetentionCategory, PolicyOverride>>;
+    } catch {
+      this.logger.warn(`${key} SystemSetting is not valid JSON; ignoring.`);
+      return {};
+    }
+  }
+
+  private async readDraft(): Promise<PolicyDraftState | null> {
+    const setting = await this.prisma.systemSetting.findUnique({ where: { key: DRAFT_KEY } });
+    if (!setting) return null;
+    try {
+      return JSON.parse(setting.value) as PolicyDraftState;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSetting(key: string, value: unknown, userId: string) {
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: { key, value: JSON.stringify(value), updatedBy: userId },
+      update: { value: JSON.stringify(value), updatedBy: userId },
+    });
+  }
+
+  // ---- Policy editing workflow: draft → review → activate -------------------
+
+  /** Current draft policy-change (if any) plus its workflow status. Gated to viewers. */
+  async getPolicyDraft(user: AuthUser) {
+    this.assertCanView(user);
+    return { draft: await this.readDraft() };
+  }
+
+  /**
+   * Draft a policy change (Super Admin). Optionally submit it for council/legal
+   * review. Behaviour changes on safeguarded categories are refused. Nothing takes
+   * effect until the draft is approved and explicitly activated.
+   */
+  async draftPolicy(user: AuthUser, dto: DraftPolicyDto) {
+    this.assertCanManage(user);
+    const overrides: Partial<Record<RetentionCategory, PolicyOverride>> = {};
+    for (const e of dto.entries) {
+      if (SAFEGUARDED_CATEGORIES.includes(e.category) && e.behavior && e.behavior !== 'RETAIN_FOREVER') {
+        throw new BadRequestException(`${e.category} is safeguarded and must remain RETAIN_FOREVER.`);
+      }
+      const o: PolicyOverride = {};
+      if (e.days != null) o.days = e.days;
+      if (e.behavior != null) o.behavior = e.behavior;
+      if (e.note != null) o.note = e.note;
+      overrides[e.category] = o;
+    }
+    const state: PolicyDraftState = {
+      overrides,
+      status: dto.submitForReview ? 'PENDING_REVIEW' : 'DRAFT',
+      proposedById: user.id,
+      proposedByEmail: user.email,
+      proposedAt: new Date().toISOString(),
+    };
+    await this.writeSetting(DRAFT_KEY, state, user.id);
+    await this.audit.record({
+      userId: user.id, action: 'RETENTION_POLICY_DRAFTED', entityType: 'RetentionPolicy', entityId: DRAFT_KEY,
+      metadata: { entries: dto.entries, status: state.status, by: user.email },
+    });
+    return state;
+  }
+
+  /** Approve or reject a pending policy draft (Council / legal reviewer). */
+  async reviewPolicy(user: AuthUser, dto: ReviewPolicyDto) {
+    this.assertCanReview(user);
+    const draft = await this.readDraft();
+    if (!draft) throw new NotFoundException('There is no policy draft to review.');
+    if (draft.status !== 'PENDING_REVIEW') {
+      throw new BadRequestException(`Draft is ${draft.status}; only a PENDING_REVIEW draft can be reviewed.`);
+    }
+    const next: PolicyDraftState = {
+      ...draft,
+      status: dto.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+      reviewedById: user.id,
+      reviewedByEmail: user.email,
+      reviewedAt: new Date().toISOString(),
+      reviewDecision: dto.decision,
+      reviewNote: dto.note,
+    };
+    await this.writeSetting(DRAFT_KEY, next, user.id);
+    await this.audit.record({
+      userId: user.id, action: 'RETENTION_POLICY_REVIEWED', entityType: 'RetentionPolicy', entityId: DRAFT_KEY,
+      metadata: { decision: dto.decision, note: dto.note, by: user.email },
+    });
+    return next;
+  }
+
+  /**
+   * Activate an APPROVED draft (Super Admin): merge it into the active policy,
+   * audit each changed retention period, and clear the draft. Refuses unless the
+   * draft has been approved by a reviewer.
+   */
+  async activatePolicy(user: AuthUser) {
+    this.assertCanManage(user);
+    const draft = await this.readDraft();
+    if (!draft) throw new NotFoundException('There is no policy draft to activate.');
+    if (draft.status !== 'APPROVED') {
+      throw new BadRequestException('Only an APPROVED draft can be activated. Submit it for review and obtain approval first.');
+    }
+    const before = await this.getPolicy();
+    const active = await this.readOverrides(POLICY_KEY);
+    for (const cat of Object.keys(draft.overrides) as RetentionCategory[]) {
+      active[cat] = { ...(active[cat] ?? {}), ...draft.overrides[cat] };
+    }
+    await this.writeSetting(POLICY_KEY, active, user.id);
+    await this.prisma.systemSetting.delete({ where: { key: DRAFT_KEY } }).catch(() => undefined);
+
+    const after = await this.getPolicy();
+    for (const cat of Object.keys(draft.overrides) as RetentionCategory[]) {
+      if (before[cat] && after[cat] && (before[cat].days !== after[cat].days || before[cat].behavior !== after[cat].behavior)) {
+        await this.audit.record({
+          userId: user.id, action: 'RETENTION_PERIOD_CHANGED', entityType: 'RetentionPolicy', entityId: cat,
+          metadata: { category: cat, fromDays: before[cat].days, toDays: after[cat].days, fromBehavior: before[cat].behavior, toBehavior: after[cat].behavior, by: user.email },
+        });
+      }
+    }
+    await this.audit.record({
+      userId: user.id, action: 'RETENTION_POLICY_ACTIVATED', entityType: 'RetentionPolicy', entityId: POLICY_KEY,
+      metadata: { categories: Object.keys(draft.overrides), reviewedBy: draft.reviewedByEmail, by: user.email },
+    });
+    return after;
   }
 
   // ---- Legal hold ----------------------------------------------------------
 
   async placeLegalHold(user: AuthUser, dto: PlaceLegalHoldDto) {
-    this.assertCanManage(user);
+    this.assertCanRequestHold(user);
     const theCase = await this.prisma.case.findUnique({ where: { id: dto.caseId }, select: { id: true } });
     if (!theCase) throw new NotFoundException('Case not found.');
     const hold = await this.prisma.legalHold.create({
@@ -93,7 +277,7 @@ export class RetentionService {
   }
 
   async listLegalHolds(user: AuthUser, status?: LegalHoldStatus) {
-    this.assertCanManage(user);
+    this.assertCanView(user);
     return this.prisma.legalHold.findMany({ where: { status }, orderBy: { placedAt: 'desc' } });
   }
 
@@ -104,7 +288,7 @@ export class RetentionService {
   }
 
   async caseRetentionStatus(user: AuthUser, caseId: string) {
-    this.assertCanManage(user);
+    this.assertCanView(user);
     const theCase = await this.prisma.case.findUnique({ where: { id: caseId }, select: { id: true, reference: true, stage: true, closedAt: true, deletedAt: true, legalHold: true, retentionStatus: true } });
     if (!theCase) throw new NotFoundException('Case not found.');
     const holds = await this.prisma.legalHold.findMany({ where: { caseId }, orderBy: { placedAt: 'desc' } });
@@ -146,12 +330,17 @@ export class RetentionService {
 
     for (const category of dto.categories) {
       const cat = policy[category];
-      if (cat.behavior === 'RETAIN_FOREVER') {
-        summary.push({ category, softDeleted: 0, skippedLegalHold: 0, refused: 'RETAIN_FOREVER — safeguarded; never deleted by a sweep' });
-        continue;
-      }
-      if (cat.behavior === 'REVIEW') {
-        summary.push({ category, softDeleted: 0, skippedLegalHold: 0, refused: 'REVIEW — flagged for human review; not auto-deleted' });
+      // Only SOFT_DELETE is ever acted on. Every other behaviour is refused so a
+      // sweep can never delete RETAIN_FOREVER / REVIEW / ARCHIVE / LEGAL_HOLD_REQUIRED.
+      if (cat.behavior !== 'SOFT_DELETE') {
+        const reason: Record<RetentionBehavior, string> = {
+          RETAIN_FOREVER: 'RETAIN_FOREVER — safeguarded; never deleted by a sweep',
+          REVIEW: 'REVIEW — flagged for human review; not auto-deleted',
+          ARCHIVE: 'ARCHIVE — moved to cold archive; not deleted by a sweep',
+          LEGAL_HOLD_REQUIRED: 'LEGAL_HOLD_REQUIRED — deletion only under an explicit legal process',
+          SOFT_DELETE: '',
+        };
+        summary.push({ category, softDeleted: 0, skippedLegalHold: 0, refused: reason[cat.behavior] });
         continue;
       }
       // SOFT_DELETE — currently implemented at the case-record anchor.

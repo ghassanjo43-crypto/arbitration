@@ -11,8 +11,23 @@
  *                     tombstone + content hash. The arbitral record survives.
  *   REVIEW          — past the period → mark ELIGIBLE_FOR_REVIEW only; a human
  *                     must decide. Never auto-deleted.
+ *   ARCHIVE         — past the period → move to cold archive (never auto-deleted;
+ *                     a sweep reports it but does not delete).
+ *   LEGAL_HOLD_REQUIRED — deletion is only ever possible under an explicit legal
+ *                     process; a sweep always refuses it.
  */
-export type RetentionBehavior = 'RETAIN_FOREVER' | 'SOFT_DELETE' | 'REVIEW';
+export type RetentionBehavior = 'RETAIN_FOREVER' | 'SOFT_DELETE' | 'REVIEW' | 'ARCHIVE' | 'LEGAL_HOLD_REQUIRED';
+
+/** Behaviours an administrator may assign when editing a policy. */
+export const EDITABLE_BEHAVIORS: RetentionBehavior[] = ['SOFT_DELETE', 'RETAIN_FOREVER', 'REVIEW', 'ARCHIVE', 'LEGAL_HOLD_REQUIRED'];
+
+/**
+ * Legally significant classes that are protected from ever becoming deletable
+ * through policy editing: their behaviour is clamped to RETAIN_FOREVER no matter
+ * what override is stored. This keeps awards, the audit trail and service
+ * evidence safe even if a policy is mis-edited.
+ */
+export const SAFEGUARDED_CATEGORIES: readonly string[] = ['AWARD', 'AUDIT_LOG', 'NOTICE_CERTIFICATE'];
 
 export const RETENTION_CATEGORIES = [
   'CASE_RECORD',
@@ -36,6 +51,8 @@ export interface CategoryPolicy {
   behavior: RetentionBehavior;
   /** Human description of the retention rule + anchor. */
   description: string;
+  /** Optional administrator note attached when the policy was edited. */
+  note?: string;
 }
 
 const DAY = 1;
