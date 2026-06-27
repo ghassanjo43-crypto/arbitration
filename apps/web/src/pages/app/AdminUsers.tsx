@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Permission, Role, ROLE_LABELS } from '@gaap/shared';
+import { ASSIGNABLE_IDENTITY_TYPES, CASE_ROLE_LABELS, IDENTITY_TYPE_LABELS, Permission, Role, ROLE_LABELS } from '@gaap/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../lib/api';
 
@@ -13,6 +13,8 @@ interface AdminUser {
   status: string;
   emailVerified: boolean;
   roles: string[];
+  identityType: string;
+  caseRoles: string[];
   deletedAt: string | null;
 }
 
@@ -22,6 +24,21 @@ const ASSIGNABLE_ROLES = Object.values(Role);
 function apiError(e: unknown): string {
   const m = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
   return Array.isArray(m) ? m.join('; ') : (m ?? 'Action not permitted.');
+}
+
+/**
+ * Describe a user's case role(s) for display. Claimant/Respondent are case roles,
+ * not generic site roles — and a party not yet attached to a case shows a clear
+ * "pending" status instead of any generic classification.
+ */
+function caseRoleSummary(identityType: string, caseRoles: string[]): string[] {
+  const isParty = identityType === 'INDIVIDUAL' || identityType === 'COMPANY';
+  if (!caseRoles.length) return isParty ? ['Party account — pending case-role assignment'] : [];
+  const prefix = identityType === 'COMPANY' ? 'Company' : identityType === 'INDIVIDUAL' ? 'Individual' : '';
+  return caseRoles.map((cr) => {
+    const label = (CASE_ROLE_LABELS as Record<string, string>)[cr] ?? cr.replaceAll('_', ' ');
+    return isParty && (cr === 'CLAIMANT' || cr === 'RESPONDENT') ? `${prefix} ${label}`.trim() : label;
+  });
 }
 
 export function AdminUsers() {
@@ -58,7 +75,11 @@ export function AdminUsers() {
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
-    onSuccess: () => { setEditingRoles(null); invalidate(); },
+    onSuccess: () => { setEditingRoles(null); invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
+  });
+  const setIdentity = useMutation({
+    mutationFn: ({ id, identityType }: { id: string; identityType: string }) => api.patch(`/admin/users/${id}/identity`, { identityType }),
+    onSuccess: () => { invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
   });
   const saveDetails = useMutation({
     mutationFn: ({ id, ...body }: { id: string; firstName: string; lastName: string; email: string; emailVerified: boolean }) =>
@@ -99,6 +120,10 @@ export function AdminUsers() {
         <p className="eyebrow">Administration</p>
         <h1>User management</h1>
         <p className="muted">Create, edit and manage platform accounts: details, roles, status and passwords. This is platform administration only — it grants no access to tribunal deliberations or case merits, which remain gated by case membership. Removal is a soft delete: records are retained and sessions are revoked.</p>
+        <div className="alert alert--info" role="note">
+          Users are classified by their <strong>legal identity</strong> and by their <strong>role in each arbitration case</strong>.
+          Claimant and Respondent are case roles, not generic website roles.
+        </div>
 
         {notice && <div className="alert alert--success" role="status" onClick={() => setNotice(null)}>{notice}</div>}
         {error && <div className="alert alert--danger" role="alert" onClick={() => setError(null)}>{error}</div>}
@@ -143,7 +168,7 @@ export function AdminUsers() {
           <div className="card admin-users" style={{ padding: 0, overflow: 'hidden', marginTop: 'var(--sp-3)' }}>
             <table className="table">
               <thead>
-                <tr><th>Email</th><th>Name</th><th>Roles</th><th>Status</th><th>Actions</th></tr>
+                <tr><th>Email</th><th>Name</th><th>User type / identity</th><th>Case role(s)</th><th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {data?.data.map((u) => {
@@ -182,9 +207,11 @@ export function AdminUsers() {
                           <>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</>
                         )}
                       </td>
+                      {/* User type / identity (with the full system-roles editor when editing). */}
                       <td>
                         {editingRoles === u.id ? (
                           <div className="role-editor">
+                            <p className="field__hint">System &amp; identity roles</p>
                             {ASSIGNABLE_ROLES.map((r) => (
                               <label key={r} className="check-row">
                                 <input
@@ -200,8 +227,25 @@ export function AdminUsers() {
                             </div>
                           </div>
                         ) : (
-                          u.roles.map((r) => <span key={r} className="badge badge--gold">{ROLE_LABELS[r as Role] ?? r}</span>)
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                            <span className="badge badge--gold">{(IDENTITY_TYPE_LABELS as Record<string, string>)[u.identityType] ?? u.identityType}</span>
+                            {canManageRoles && u.identityType !== 'INTERNAL' && !u.deletedAt && (
+                              <select className="select" style={{ width: 'auto' }} aria-label={`Identity for ${u.email}`} value={u.identityType}
+                                onChange={(e) => wrap(() => setIdentity.mutateAsync({ id: u.id, identityType: e.target.value }))}>
+                                {ASSIGNABLE_IDENTITY_TYPES.map((it) => <option key={it} value={it}>{IDENTITY_TYPE_LABELS[it]}</option>)}
+                              </select>
+                            )}
+                          </div>
                         )}
+                      </td>
+                      {/* Case role(s) — derived from case membership (read-only here). */}
+                      <td className="field__hint">
+                        {(() => {
+                          const summary = caseRoleSummary(u.identityType, u.caseRoles);
+                          return summary.length
+                            ? summary.map((s) => <span key={s} className="badge badge--info" style={{ marginInlineEnd: 4 }}>{s}</span>)
+                            : '—';
+                        })()}
                       </td>
                       <td><span className={`badge ${u.status === 'ACTIVE' ? 'badge--success' : u.status === 'SUSPENDED' ? 'badge--warning' : ''}`}>{u.status.replaceAll('_', ' ')}</span></td>
                       <td>
@@ -213,7 +257,7 @@ export function AdminUsers() {
                             <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); }}>Edit</button>
                           )}
                           {canManageRoles && (
-                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>Roles</button>
+                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>System roles</button>
                           )}
                           {!locked && (
                             <button className="btn btn--ghost btn--sm" disabled={resetPassword.isPending}

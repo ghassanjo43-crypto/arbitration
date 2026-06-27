@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { Permission, Role, STAFF_ROLES, UserStatus } from '@gaap/shared';
+import { IDENTITY_ROLES, IDENTITY_TYPE_ROLE, IdentityType, Permission, Role, STAFF_ROLES, UserStatus, identityForRoles } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
@@ -36,7 +36,7 @@ export class UsersService {
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        include: { profile: true, roles: true },
+        include: { profile: true, roles: true, caseTeamMembers: { where: { active: true }, select: { caseRole: true } } },
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip: (page - 1) * pageSize,
@@ -47,7 +47,10 @@ export class UsersService {
   }
 
   async get(id: string) {
-    const u = await this.prisma.user.findUnique({ where: { id }, include: { profile: true, roles: true } });
+    const u = await this.prisma.user.findUnique({
+      where: { id },
+      include: { profile: true, roles: true, caseTeamMembers: { where: { active: true }, select: { caseRole: true } } },
+    });
     if (!u) throw new NotFoundException('User not found.');
     return this.toView(u);
   }
@@ -233,6 +236,34 @@ export class UsersService {
   }
 
   /**
+   * Change a user's legal IDENTITY type (Individual / Company / Law firm /
+   * Arbitrator). This swaps only the identity role and PRESERVES any system
+   * (internal) roles; case roles are unaffected. ROLE_MANAGE only.
+   */
+  async setIdentityType(actor: AuthUser, id: string, identityType: IdentityType) {
+    this.assertCanManageRoles(actor);
+    const newRole = (IDENTITY_TYPE_ROLE as Record<string, Role>)[identityType];
+    if (!newRole) throw new BadRequestException('Invalid identity type.');
+
+    const target = await this.loadTarget(id);
+    const current = target.roles.map((r) => r.role as Role);
+    const from = identityForRoles(current);
+    // Keep system/internal roles; replace just the identity role(s).
+    const systemRoles = current.filter((r) => !IDENTITY_ROLES.includes(r));
+    const next = [...new Set([...systemRoles, newRole])];
+
+    await this.prisma.$transaction([
+      this.prisma.userRole.deleteMany({ where: { userId: id } }),
+      this.prisma.userRole.createMany({ data: next.map((role) => ({ userId: id, role, grantedBy: actor.id })) }),
+    ]);
+    await this.audit.record({
+      userId: actor.id, action: 'USER_IDENTITY_TYPE_CHANGED', entityType: 'User', entityId: id,
+      metadata: { from, to: identityType, by: actor.email },
+    });
+    return this.get(id);
+  }
+
+  /**
    * Admin password reset. Either (a) e-mails the user a self-service reset link
    * (sendEmail), or (b) sets a password — explicit or generated — revokes all
    * sessions, and returns the temporary password once. Never exposes the hash.
@@ -316,6 +347,13 @@ export class UsersService {
     }
   }
 
+  /** Changing roles/identity is restricted to a super administrator (ROLE_MANAGE). */
+  private assertCanManageRoles(actor: AuthUser) {
+    if (!actor.permissions.includes(Permission.ROLE_MANAGE)) {
+      throw new ForbiddenException('Only a super administrator may change a user’s classification.');
+    }
+  }
+
   /** Granting any staff role (incl. SUPER_ADMIN/ADMIN) is an escalation gated on ROLE_MANAGE. */
   private assertCanAssignRoles(actor: AuthUser, roles: Role[]) {
     const wantsStaff = roles.some((r) => STAFF_ROLES.includes(r));
@@ -340,7 +378,9 @@ export class UsersService {
     id: string; email: string; status: string; emailVerified: boolean; createdAt: Date; deletedAt: Date | null;
     profile: { displayName: string; firstName: string; lastName: string } | null;
     roles: { role: string }[];
+    caseTeamMembers?: { caseRole: string }[];
   }) {
+    const roles = u.roles.map((r) => r.role);
     return {
       id: u.id,
       email: u.email,
@@ -349,7 +389,11 @@ export class UsersService {
       lastName: u.profile?.lastName ?? null,
       status: u.status,
       emailVerified: u.emailVerified,
-      roles: u.roles.map((r) => r.role),
+      roles,
+      // Legal identity (derived from global roles) — replaces the old generic
+      // "private individual" label; case roles come from case membership.
+      identityType: identityForRoles(roles as Role[]),
+      caseRoles: [...new Set((u.caseTeamMembers ?? []).map((m) => m.caseRole))],
       deletedAt: u.deletedAt,
       createdAt: u.createdAt,
     };

@@ -7,7 +7,7 @@ import { PermissionsGuard } from '../authz/permissions.guard';
 import { RequirePermissions } from '../authz/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { CreateUserDto, ResetPasswordDto, SetRolesDto, UpdateUserDto } from './dto';
+import { CreateUserDto, ResetPasswordDto, SetIdentityDto, SetRolesDto, UpdateUserDto } from './dto';
 
 @ApiTags('admin-users')
 @ApiBearerAuth()
@@ -57,6 +57,13 @@ export class UsersController {
   @RequirePermissions(Permission.ROLE_MANAGE)
   setRoles(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: SetRolesDto) {
     return this.users.setRoles(actor, id, dto);
+  }
+
+  // Legal identity type (Individual / Company / Law firm / Arbitrator).
+  @Patch(':id/identity')
+  @RequirePermissions(Permission.ROLE_MANAGE)
+  setIdentity(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: SetIdentityDto) {
+    return this.users.setIdentityType(actor, id, dto.identityType);
   }
 
   @Delete(':id')

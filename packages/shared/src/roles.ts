@@ -19,7 +19,7 @@ export const ALL_ROLES: Role[] = Object.values(Role);
 
 /** Human-readable labels (i18n keys live in the web app; these are fallbacks). */
 export const ROLE_LABELS: Record<Role, string> = {
-  [Role.INDIVIDUAL]: 'Private Individual',
+  [Role.INDIVIDUAL]: 'Individual',
   [Role.COMPANY_CLIENT]: 'Company Client',
   [Role.LAWYER]: 'Lawyer',
   [Role.ARBITRATOR]: 'Arbitrator',
@@ -76,3 +76,68 @@ export enum PartySide {
   CLAIMANT = 'CLAIMANT',
   RESPONDENT = 'RESPONDENT',
 }
+
+/**
+ * Legal IDENTITY of an account, derived from its global roles. This is distinct
+ * from a per-case role (Claimant/Respondent), which depends on case membership.
+ * The platform classifies users by identity + case role — never as a generic
+ * "private individual".
+ */
+export enum IdentityType {
+  INDIVIDUAL = 'INDIVIDUAL',
+  COMPANY = 'COMPANY',
+  LAW_FIRM = 'LAW_FIRM',
+  ARBITRATOR = 'ARBITRATOR',
+  INTERNAL = 'INTERNAL',
+}
+
+export const IDENTITY_TYPE_LABELS: Record<IdentityType, string> = {
+  [IdentityType.INDIVIDUAL]: 'Individual',
+  [IdentityType.COMPANY]: 'Company / Organization',
+  [IdentityType.LAW_FIRM]: 'Law firm / Representative',
+  [IdentityType.ARBITRATOR]: 'Arbitrator',
+  [IdentityType.INTERNAL]: 'Internal platform user',
+};
+
+/** External identity types a Super Admin may assign (Internal is derived from system roles). */
+export const ASSIGNABLE_IDENTITY_TYPES: IdentityType[] = [
+  IdentityType.INDIVIDUAL,
+  IdentityType.COMPANY,
+  IdentityType.LAW_FIRM,
+  IdentityType.ARBITRATOR,
+];
+
+/** Global roles that denote an account's external legal identity (not internal staff). */
+export const IDENTITY_ROLES: Role[] = [Role.INDIVIDUAL, Role.COMPANY_CLIENT, Role.LAWYER, Role.ARBITRATOR];
+
+const INTERNAL_ROLES: Role[] = [Role.REGISTRAR, Role.COUNCIL_MEMBER, Role.ADMIN, Role.SUPER_ADMIN];
+
+/** Derive the legal-identity classification from a user's global roles. */
+export function identityForRoles(roles: Role[]): IdentityType {
+  if (roles.some((r) => INTERNAL_ROLES.includes(r))) return IdentityType.INTERNAL;
+  if (roles.includes(Role.ARBITRATOR)) return IdentityType.ARBITRATOR;
+  if (roles.includes(Role.LAWYER)) return IdentityType.LAW_FIRM;
+  if (roles.includes(Role.COMPANY_CLIENT)) return IdentityType.COMPANY;
+  return IdentityType.INDIVIDUAL;
+}
+
+/** The global role that represents each assignable identity type. */
+export const IDENTITY_TYPE_ROLE: Record<Exclude<IdentityType, IdentityType.INTERNAL>, Role> = {
+  [IdentityType.INDIVIDUAL]: Role.INDIVIDUAL,
+  [IdentityType.COMPANY]: Role.COMPANY_CLIENT,
+  [IdentityType.LAW_FIRM]: Role.LAWYER,
+  [IdentityType.ARBITRATOR]: Role.ARBITRATOR,
+};
+
+/** Human-readable labels for per-case roles. */
+export const CASE_ROLE_LABELS: Record<CaseRole, string> = {
+  [CaseRole.CLAIMANT]: 'Claimant',
+  [CaseRole.CLAIMANT_REPRESENTATIVE]: 'Claimant Representative',
+  [CaseRole.RESPONDENT]: 'Respondent',
+  [CaseRole.RESPONDENT_REPRESENTATIVE]: 'Respondent Representative',
+  [CaseRole.TRIBUNAL_CHAIR]: 'Tribunal Chair',
+  [CaseRole.TRIBUNAL_MEMBER]: 'Arbitrator / Tribunal',
+  [CaseRole.TRIBUNAL_SECRETARY]: 'Tribunal Secretary',
+  [CaseRole.CASE_REGISTRAR]: 'Registrar',
+  [CaseRole.OBSERVER]: 'Observer',
+};

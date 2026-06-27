@@ -1,5 +1,5 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { Role, UserStatus } from '@gaap/shared';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { ASSIGNABLE_IDENTITY_TYPES, IdentityType, Role, UserStatus } from '@gaap/shared';
 
 export class CreateUserDto {
   @IsEmail() email!: string;
@@ -28,6 +28,10 @@ export class SetRolesDto {
   @ArrayNotEmpty()
   @IsEnum(Role, { each: true })
   roles!: Role[];
+}
+
+export class SetIdentityDto {
+  @IsIn(ASSIGNABLE_IDENTITY_TYPES) identityType!: IdentityType;
 }
 
 export class ResetPasswordDto {

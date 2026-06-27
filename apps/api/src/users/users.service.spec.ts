@@ -147,6 +147,41 @@ describe('UsersService — lifecycle transitions', () => {
   });
 });
 
+describe('UsersService — identity classification', () => {
+  it('derives identityType and case roles in the view (no generic "private individual")', async () => {
+    const { service, prisma } = makeService({ roles: [Role.COMPANY_CLIENT] });
+    // get() includes caseTeamMembers; make the target carry an active claimant membership.
+    prisma.user.findUnique.mockImplementation((args: { where: { id?: string; email?: string } }) =>
+      args.where.email ? Promise.resolve(null) : Promise.resolve({
+        id: 'target-id', email: 'co@x.test', status: 'ACTIVE', emailVerified: true, createdAt: new Date(), deletedAt: null,
+        profile: { firstName: 'C', lastName: 'O', displayName: 'C O' },
+        roles: [{ role: Role.COMPANY_CLIENT }],
+        caseTeamMembers: [{ caseRole: 'RESPONDENT' }],
+      }),
+    );
+    const view = await service.get('target-id');
+    expect(view.identityType).toBe('COMPANY');
+    expect(view.caseRoles).toEqual(['RESPONDENT']);
+    expect((view as { roles: string[] }).roles).not.toContain('Private Individual');
+  });
+
+  it('lets a Super Admin change identity type, preserving system roles, and audits it', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL, Role.REGISTRAR] });
+    await service.setIdentityType(superAdmin, 'target-id', 'COMPANY' as never);
+    // Re-creates roles = system roles preserved + new identity role.
+    const created = prisma.userRole.createMany.mock.calls[0][0].data.map((d: { role: string }) => d.role);
+    expect(created).toContain(Role.COMPANY_CLIENT);
+    expect(created).toContain(Role.REGISTRAR); // system role preserved
+    expect(created).not.toContain(Role.INDIVIDUAL); // old identity replaced
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_IDENTITY_TYPE_CHANGED' }));
+  });
+
+  it('blocks a non-role-manager from changing identity type', async () => {
+    const { service } = makeService({ roles: [Role.INDIVIDUAL] });
+    await expect(service.setIdentityType(admin, 'target-id', 'COMPANY' as never)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
 describe('UsersService — login email update', () => {
   it('updates a user email (normalized lowercase), re-unverifies, and audits old → new', async () => {
     const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL] });

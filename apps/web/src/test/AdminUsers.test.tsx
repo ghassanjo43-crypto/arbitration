@@ -26,14 +26,17 @@ import { AdminUsers } from '../pages/app/AdminUsers';
 // One user per lifecycle case. `deletedAt` is deliberately decoupled from `status`
 // to lock in the fix: lifecycle is driven by status, not deletedAt/verification.
 const users = [
-  { id: 'u1', email: 'active@x.test', displayName: 'Active User', firstName: 'A', lastName: 'U', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], deletedAt: null },
-  { id: 'u2', email: 'unverified@x.test', displayName: 'Unverified User', firstName: 'U', lastName: 'V', status: 'ACTIVE', emailVerified: false, roles: ['LAWYER'], deletedAt: null },
-  { id: 'u3', email: 'suspended@x.test', displayName: 'Suspended User', firstName: 'S', lastName: 'P', status: 'SUSPENDED', emailVerified: true, roles: ['INDIVIDUAL'], deletedAt: null },
-  { id: 'u4', email: 'deactivated@x.test', displayName: 'Deactivated User', firstName: 'D', lastName: 'A', status: 'DEACTIVATED', emailVerified: true, roles: ['INDIVIDUAL'], deletedAt: null },
+  // Legacy individual with no case → "pending case-role assignment" (not "Private Individual").
+  { id: 'u1', email: 'active@x.test', displayName: 'Active User', firstName: 'A', lastName: 'U', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: null },
+  { id: 'u2', email: 'unverified@x.test', displayName: 'Unverified User', firstName: 'U', lastName: 'V', status: 'ACTIVE', emailVerified: false, roles: ['LAWYER'], identityType: 'LAW_FIRM', caseRoles: [], deletedAt: null },
+  // Case-linked individual → "Individual Claimant".
+  { id: 'u3', email: 'suspended@x.test', displayName: 'Suspended User', firstName: 'S', lastName: 'P', status: 'SUSPENDED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: ['CLAIMANT'], deletedAt: null },
+  // Company linked as respondent → "Company Respondent".
+  { id: 'u4', email: 'deactivated@x.test', displayName: 'Deactivated User', firstName: 'D', lastName: 'A', status: 'DEACTIVATED', emailVerified: true, roles: ['COMPANY_CLIENT'], identityType: 'COMPANY', caseRoles: ['RESPONDENT'], deletedAt: null },
   // Regression: ACTIVE status but a stray deletedAt — must NOT show Reactivate.
-  { id: 'u5', email: 'active-stray@x.test', displayName: 'Stray Deleted', firstName: 'X', lastName: 'Y', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], deletedAt: '2026-01-01T00:00:00Z' },
+  { id: 'u5', email: 'active-stray@x.test', displayName: 'Stray Deleted', firstName: 'X', lastName: 'Y', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: '2026-01-01T00:00:00Z' },
   // Genuinely soft-deleted: status DEACTIVATED + deletedAt — shows Reactivate.
-  { id: 'u6', email: 'softdeleted@x.test', displayName: 'Soft Deleted', firstName: 'S', lastName: 'D', status: 'DEACTIVATED', emailVerified: true, roles: ['INDIVIDUAL'], deletedAt: '2026-01-01T00:00:00Z' },
+  { id: 'u6', email: 'softdeleted@x.test', displayName: 'Soft Deleted', firstName: 'S', lastName: 'D', status: 'DEACTIVATED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: '2026-01-01T00:00:00Z' },
 ];
 
 function renderPage() {
@@ -107,19 +110,60 @@ describe('AdminUsers — action state by lifecycle status', () => {
     expect(within(row).queryByText('Remove')).not.toBeInTheDocument();
   });
 
-  it('renders role and status labels correctly', async () => {
+  it('renders identity and status labels correctly (no "Private Individual")', async () => {
     renderPage();
     const active = await rowFor('active@x.test');
-    expect(within(active).getByText('Private Individual')).toBeInTheDocument();
-    // Status badge lives in the 4th cell; the select options (5th cell) also
-    // contain "ACTIVE", so assert against the status cell specifically.
-    const statusCell = active.querySelectorAll('td')[3] as HTMLElement;
+    // Identity cell (index 2); "Individual" also appears as a <select> option, so
+    // assert against the cell's text rather than a unique element.
+    expect(active.querySelectorAll('td')[2]).toHaveTextContent('Individual');
+    // Status badge is now in the 5th cell (Email, Name, Identity, Case role(s), Status).
+    const statusCell = active.querySelectorAll('td')[4] as HTMLElement;
     expect(statusCell).toHaveTextContent('ACTIVE');
     const lawyer = await rowFor('unverified@x.test');
-    expect(within(lawyer).getByText('Lawyer')).toBeInTheDocument();
+    expect(lawyer.querySelectorAll('td')[2]).toHaveTextContent('Law firm / Representative');
     const suspended = await rowFor('suspended@x.test');
-    // Inactive rows have no status select, so the badge is unambiguous.
     expect(within(suspended).getByText('SUSPENDED')).toBeInTheDocument();
+  });
+});
+
+describe('AdminUsers — arbitration classification (no generic Private Individual)', () => {
+  it('never shows "Private Individual" anywhere in the list', async () => {
+    renderPage();
+    await screen.findByText('active@x.test');
+    expect(screen.queryByText('Private Individual')).not.toBeInTheDocument();
+  });
+
+  it('shows a legacy individual with no case as a pending party account', async () => {
+    renderPage();
+    const row = await rowFor('active@x.test');
+    expect(within(row).getByText('Party account — pending case-role assignment')).toBeInTheDocument();
+  });
+
+  it('shows a case-linked individual as "Individual Claimant"', async () => {
+    renderPage();
+    const row = await rowFor('suspended@x.test');
+    expect(within(row).getByText('Individual Claimant')).toBeInTheDocument();
+  });
+
+  it('shows a company respondent as "Company Respondent"', async () => {
+    renderPage();
+    const row = await rowFor('deactivated@x.test');
+    expect(within(row).getByText('Company Respondent')).toBeInTheDocument();
+  });
+
+  it('lets a Super Admin change a user identity type via PATCH /identity', async () => {
+    patch.mockResolvedValue({ data: {} });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.change(within(row).getByLabelText('Identity for active@x.test'), { target: { value: 'COMPANY' } });
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1/identity', { identityType: 'COMPANY' }));
+  });
+
+  it('does not offer the identity editor to a non-role-manager', async () => {
+    perms = ['user:manage']; // can view/manage users but not roles/identity
+    renderPage();
+    await screen.findByText('active@x.test');
+    expect(screen.queryByLabelText('Identity for active@x.test')).not.toBeInTheDocument();
   });
 });
 
