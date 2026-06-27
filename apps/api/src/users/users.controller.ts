@@ -66,10 +66,25 @@ export class UsersController {
     return this.users.setIdentityType(actor, id, dto.identityType);
   }
 
-  @Delete(':id')
+  // Pre-flight: is this account linked to anything? Drives Delete-vs-Archive in the UI.
+  @Get(':id/delete-check')
   @RequirePermissions(Permission.USER_MANAGE)
-  remove(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
-    return this.users.remove(actor, id);
+  deleteCheck(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.deleteCheck(actor, id);
+  }
+
+  // Archive (soft-delete): the safe option for any linked account. USER_MANAGE.
+  @Post(':id/archive')
+  @RequirePermissions(Permission.USER_MANAGE)
+  archive(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.archive(actor, id);
+  }
+
+  // PERMANENT delete — only for unlinked accounts; super administrator only.
+  @Delete(':id')
+  @RequirePermissions(Permission.ROLE_MANAGE)
+  hardDelete(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.hardDelete(actor, id);
   }
 
   @Post(':id/restore')

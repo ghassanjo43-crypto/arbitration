@@ -15,6 +15,7 @@ interface AdminUser {
   roles: string[];
   identityType: string;
   caseRoles: string[];
+  linkedRecordCount: number | null; // 0 = unlinked (hard-deletable); >0 or null = archive only
   deletedAt: string | null;
 }
 
@@ -76,7 +77,18 @@ export function AdminUsers() {
     mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/admin/users/${id}`, { status }),
     onSuccess: invalidate,
   });
-  const remove = useMutation({ mutationFn: (id: string) => api.delete(`/admin/users/${id}`), onSuccess: invalidate });
+  // Archive (soft-delete) is always allowed; permanent delete is only for unlinked
+  // accounts and is refused server-side otherwise (the error lists the blockers).
+  const archive = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/users/${id}/archive`, {}),
+    onSuccess: () => { setNotice('User archived'); setError(null); invalidate(); },
+    onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
+  });
+  const hardDelete = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/users/${id}`),
+    onSuccess: () => { setNotice('User permanently deleted'); setError(null); invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
+    onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
+  });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
@@ -215,6 +227,13 @@ export function AdminUsers() {
                   // verification. An ACTIVE account is active even if unverified or
                   // carrying a stray deletedAt; only SUSPENDED/DEACTIVATED is inactive.
                   const isActive = u.status === 'ACTIVE';
+                  // Permanent delete is only offered for unlinked accounts (count === 0),
+                  // to a super administrator, never for self/locked rows. Everyone else
+                  // gets Archive (soft-delete). null count = unknown → treat as linked.
+                  const canHardDelete = u.linkedRecordCount === 0 && canManageRoles && !isSelf && !locked;
+                  const linkTitle = (u.linkedRecordCount ?? 1) > 0
+                    ? `Linked to ${u.linkedRecordCount} platform record(s) — permanent delete is blocked. Archive deactivates the account and keeps all records linked.`
+                    : 'Archive deactivates the account and revokes sessions; records are retained.';
                   // Editing details/email uses a dedicated full-width row so the Save
                   // button is unambiguous and can never be overlapped by adjacent cells.
                   if (editingDetails === u.id) {
@@ -323,17 +342,27 @@ export function AdminUsers() {
                               >
                                 {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                               </select>
-                              <button
-                                className="btn btn--ghost btn--sm"
-                                style={{ color: 'var(--c-danger)' }}
-                                disabled={locked || isSelf}
-                                onClick={() => { if (confirm(`Remove ${u.email}? This deactivates the account and revokes sessions.`)) void wrap(() => remove.mutateAsync(u.id)); }}
-                              >Remove</button>
+                              {canHardDelete ? (
+                                <button className="btn btn--ghost btn--sm" style={{ color: 'var(--c-danger)' }}
+                                  onClick={() => { if (confirm(`Permanently delete ${u.email}? This account has no linked records and cannot be recovered.`)) hardDelete.mutate(u.id); }}
+                                >Delete permanently</button>
+                              ) : (
+                                <button className="btn btn--ghost btn--sm" title={linkTitle} disabled={locked || isSelf}
+                                  onClick={() => { if (confirm(`Archive ${u.email}? This deactivates the account and revokes sessions; records are retained.`)) archive.mutate(u.id); }}
+                                >Archive</button>
+                              )}
                             </>
                           ) : (
                             /* Inactive account (SUSPENDED/DEACTIVATED/soft-deleted):
-                               Reactivate is the primary action — no Suspend/Deactivate. */
-                            <button className="btn btn--secondary btn--sm" disabled={locked} onClick={() => wrap(() => restore.mutateAsync(u.id))}>Reactivate</button>
+                               Reactivate is the primary action; permanent delete only if unlinked. */
+                            <>
+                              <button className="btn btn--secondary btn--sm" disabled={locked} onClick={() => wrap(() => restore.mutateAsync(u.id))}>Reactivate</button>
+                              {canHardDelete && (
+                                <button className="btn btn--ghost btn--sm" style={{ color: 'var(--c-danger)' }}
+                                  onClick={() => { if (confirm(`Permanently delete ${u.email}? This account has no linked records and cannot be recovered.`)) hardDelete.mutate(u.id); }}
+                                >Delete permanently</button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>

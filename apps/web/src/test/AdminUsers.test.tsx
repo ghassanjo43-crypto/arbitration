@@ -26,17 +26,18 @@ import { AdminUsers } from '../pages/app/AdminUsers';
 // One user per lifecycle case. `deletedAt` is deliberately decoupled from `status`
 // to lock in the fix: lifecycle is driven by status, not deletedAt/verification.
 const users = [
-  // Legacy individual with no case → "pending case-role assignment" (not "Private Individual").
-  { id: 'u1', email: 'active@x.test', displayName: 'Active User', firstName: 'A', lastName: 'U', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: null },
-  { id: 'u2', email: 'unverified@x.test', displayName: 'Unverified User', firstName: 'U', lastName: 'V', status: 'ACTIVE', emailVerified: false, roles: ['LAWYER'], identityType: 'LAW_FIRM', caseRoles: [], deletedAt: null },
+  // Unlinked active account → "Delete permanently" available.
+  { id: 'u1', email: 'active@x.test', displayName: 'Active User', firstName: 'A', lastName: 'U', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], linkedRecordCount: 0, deletedAt: null },
+  // Linked active account → "Archive" (no permanent delete).
+  { id: 'u2', email: 'unverified@x.test', displayName: 'Unverified User', firstName: 'U', lastName: 'V', status: 'ACTIVE', emailVerified: false, roles: ['LAWYER'], identityType: 'LAW_FIRM', caseRoles: [], linkedRecordCount: 4, deletedAt: null },
   // Case-linked individual → "Individual Claimant".
-  { id: 'u3', email: 'suspended@x.test', displayName: 'Suspended User', firstName: 'S', lastName: 'P', status: 'SUSPENDED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: ['CLAIMANT'], deletedAt: null },
+  { id: 'u3', email: 'suspended@x.test', displayName: 'Suspended User', firstName: 'S', lastName: 'P', status: 'SUSPENDED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: ['CLAIMANT'], linkedRecordCount: 3, deletedAt: null },
   // Company linked as respondent → "Company Respondent".
-  { id: 'u4', email: 'deactivated@x.test', displayName: 'Deactivated User', firstName: 'D', lastName: 'A', status: 'DEACTIVATED', emailVerified: true, roles: ['COMPANY_CLIENT'], identityType: 'COMPANY', caseRoles: ['RESPONDENT'], deletedAt: null },
-  // Regression: ACTIVE status but a stray deletedAt — must NOT show Reactivate.
-  { id: 'u5', email: 'active-stray@x.test', displayName: 'Stray Deleted', firstName: 'X', lastName: 'Y', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: '2026-01-01T00:00:00Z' },
-  // Genuinely soft-deleted: status DEACTIVATED + deletedAt — shows Reactivate.
-  { id: 'u6', email: 'softdeleted@x.test', displayName: 'Soft Deleted', firstName: 'S', lastName: 'D', status: 'DEACTIVATED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], deletedAt: '2026-01-01T00:00:00Z' },
+  { id: 'u4', email: 'deactivated@x.test', displayName: 'Deactivated User', firstName: 'D', lastName: 'A', status: 'DEACTIVATED', emailVerified: true, roles: ['COMPANY_CLIENT'], identityType: 'COMPANY', caseRoles: ['RESPONDENT'], linkedRecordCount: 5, deletedAt: null },
+  // Regression: ACTIVE status but a stray deletedAt — must NOT show Reactivate. Unlinked.
+  { id: 'u5', email: 'active-stray@x.test', displayName: 'Stray Deleted', firstName: 'X', lastName: 'Y', status: 'ACTIVE', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], linkedRecordCount: 0, deletedAt: '2026-01-01T00:00:00Z' },
+  // Genuinely soft-deleted, linked: status DEACTIVATED + deletedAt — shows Reactivate only.
+  { id: 'u6', email: 'softdeleted@x.test', displayName: 'Soft Deleted', firstName: 'S', lastName: 'D', status: 'DEACTIVATED', emailVerified: true, roles: ['INDIVIDUAL'], identityType: 'INDIVIDUAL', caseRoles: [], linkedRecordCount: 2, deletedAt: '2026-01-01T00:00:00Z' },
 ];
 
 function renderPage() {
@@ -65,28 +66,29 @@ describe('AdminUsers — action state by lifecycle status', () => {
     expect(await screen.findByText(/do not have user-management permission/i)).toBeInTheDocument();
   });
 
-  it('an ACTIVE user shows Remove + status control and NOT Reactivate', async () => {
+  it('an ACTIVE unlinked user shows Delete permanently + status control and NOT Reactivate', async () => {
     renderPage();
     const row = await rowFor('active@x.test');
     expect(within(row).queryByText('Reactivate')).not.toBeInTheDocument();
-    expect(within(row).getByText('Remove')).toBeInTheDocument();
+    expect(within(row).getByText('Delete permanently')).toBeInTheDocument();
     expect(within(row).getByLabelText(/set status for active@x.test/i)).toBeInTheDocument();
   });
 
-  it('an ACTIVE but UNVERIFIED user shows the unverified badge but NOT Reactivate', async () => {
+  it('an ACTIVE LINKED user shows Archive (never permanent delete)', async () => {
     renderPage();
     const row = await rowFor('unverified@x.test');
-    // Exact match targets the badge span (text "unverified"), not the email substring.
     expect(within(row).getByText('unverified')).toBeInTheDocument();
+    expect(within(row).getByText('Archive')).toBeInTheDocument();
+    expect(within(row).queryByText('Delete permanently')).not.toBeInTheDocument();
     expect(within(row).queryByText('Reactivate')).not.toBeInTheDocument();
-    expect(within(row).getByText('Remove')).toBeInTheDocument();
   });
 
-  it('a SUSPENDED user shows Reactivate and NOT Remove / status select', async () => {
+  it('a SUSPENDED linked user shows Reactivate and NOT delete/archive / status select', async () => {
     renderPage();
     const row = await rowFor('suspended@x.test');
     expect(within(row).getByText('Reactivate')).toBeInTheDocument();
-    expect(within(row).queryByText('Remove')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Delete permanently')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Archive')).not.toBeInTheDocument();
     expect(within(row).queryByLabelText(/set status for/i)).not.toBeInTheDocument();
   });
 
@@ -100,14 +102,14 @@ describe('AdminUsers — action state by lifecycle status', () => {
     renderPage();
     const row = await rowFor('active-stray@x.test');
     expect(within(row).queryByText('Reactivate')).not.toBeInTheDocument();
-    expect(within(row).getByText('Remove')).toBeInTheDocument();
+    expect(within(row).getByText('Delete permanently')).toBeInTheDocument(); // unlinked
   });
 
-  it('a soft-deleted (DEACTIVATED + deletedAt) user shows Reactivate', async () => {
+  it('a soft-deleted (DEACTIVATED + deletedAt) linked user shows Reactivate only', async () => {
     renderPage();
     const row = await rowFor('softdeleted@x.test');
     expect(within(row).getByText('Reactivate')).toBeInTheDocument();
-    expect(within(row).queryByText('Remove')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Delete permanently')).not.toBeInTheDocument();
   });
 
   it('renders identity and status labels correctly (no "Private Individual")', async () => {
@@ -123,6 +125,39 @@ describe('AdminUsers — action state by lifecycle status', () => {
     expect(lawyer.querySelectorAll('td')[2]).toHaveTextContent('Law firm / Representative');
     const suspended = await rowFor('suspended@x.test');
     expect(within(suspended).getByText('SUSPENDED')).toBeInTheDocument();
+  });
+});
+
+describe('AdminUsers — deletion vs. archive', () => {
+  it('permanently deletes an UNLINKED user via DELETE', async () => {
+    del.mockResolvedValue({ data: { deleted: true } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByText('Delete permanently'));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/admin/users/u1'));
+    confirmSpy.mockRestore();
+  });
+
+  it('archives a LINKED user via POST /archive (no DELETE)', async () => {
+    post.mockResolvedValue({ data: { archived: true } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('unverified@x.test');
+    fireEvent.click(within(row).getByText('Archive'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/admin/users/u2/archive', {}));
+    expect(del).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('shows the server error (with blocking records) when a permanent delete is blocked', async () => {
+    del.mockRejectedValue({ response: { data: { message: 'This user cannot be deleted because the account is linked to platform records (Audit logs: 15). You may deactivate/archive the user instead.' } } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByText('Delete permanently'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/linked to platform records \(Audit logs: 15\)/i);
+    confirmSpy.mockRestore();
   });
 });
 

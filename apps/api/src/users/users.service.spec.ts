@@ -5,9 +5,15 @@ import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto';
 import { AuthUser } from '../auth/types';
 
-type TargetSpec = { id?: string; roles: string[]; status?: string; email?: string; emailVerified?: boolean };
+type Links = {
+  count?: Partial<Record<'caseTeamMembers' | 'documentsUploaded' | 'documentActivity' | 'messagesSent' | 'auditLogs' | 'supportTickets' | 'identityChecks' | 'ruleAcceptances' | 'companyMembers', number>>;
+  individual?: boolean; lawyer?: boolean; arbitrator?: boolean;
+  casesFiled?: number; appointments?: number; disclosures?: number; legalHolds?: number;
+};
+type TargetSpec = { id?: string; roles: string[]; status?: string; email?: string; emailVerified?: boolean; links?: Links };
 
 function makeService(target?: TargetSpec, superAdminCount = 2) {
+  const zeros = { caseTeamMembers: 0, documentsUploaded: 0, documentActivity: 0, messagesSent: 0, auditLogs: 0, supportTickets: 0, identityChecks: 0, ruleAcceptances: 0, companyMembers: 0 };
   const targetRow = target
     ? {
         id: target.id ?? 'target-id',
@@ -16,6 +22,10 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
         emailVerified: target.emailVerified ?? true,
         roles: target.roles.map((role) => ({ role })),
         profile: { firstName: 'T', lastName: 'Arget', displayName: 'T Arget' },
+        _count: { ...zeros, ...(target.links?.count ?? {}) },
+        individual: target.links?.individual ? { id: 'ip' } : null,
+        lawyer: target.links?.lawyer ? { id: 'lp' } : null,
+        arbitrator: target.links?.arbitrator ? { id: 'ap' } : null,
       }
     : null;
 
@@ -27,6 +37,7 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
         return Promise.resolve(targetRow);
       }),
       update: jest.fn().mockResolvedValue({ ...(targetRow ?? {}), roles: targetRow?.roles ?? [] }),
+      delete: jest.fn().mockResolvedValue({}),
       create: jest.fn().mockImplementation((args: { data: { email: string } }) =>
         Promise.resolve({
           id: 'new-id',
@@ -40,6 +51,10 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
         }),
       ),
     },
+    case: { count: jest.fn().mockResolvedValue(target?.links?.casesFiled ?? 0) },
+    appointmentInvitation: { count: jest.fn().mockResolvedValue(target?.links?.appointments ?? 0) },
+    conflictDisclosure: { count: jest.fn().mockResolvedValue(target?.links?.disclosures ?? 0) },
+    legalHold: { count: jest.fn().mockResolvedValue(target?.links?.legalHolds ?? 0) },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userRole: { count: jest.fn().mockResolvedValue(superAdminCount), deleteMany: jest.fn(), createMany: jest.fn() },
     $transaction: jest.fn().mockResolvedValue([]),
@@ -60,26 +75,27 @@ const superAdmin: AuthUser = {
 };
 
 describe('UsersService — administration safety', () => {
-  it('removes a regular user (soft delete + session revoke)', async () => {
-    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
-    const res = await service.remove(admin, 'target-id');
-    expect(res).toEqual({ removed: true, id: 'target-id' });
+  it('archives a regular user (soft delete + session revoke)', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL] });
+    const res = await service.archive(admin, 'target-id');
+    expect(res).toEqual({ archived: true, id: 'target-id' });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_ARCHIVED' }));
   });
 
-  it('refuses to let an admin remove their own account', async () => {
+  it('refuses to let an admin archive their own account', async () => {
     const { service } = makeService({ roles: [Role.ADMIN] });
-    await expect(service.remove(admin, admin.id)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.archive(admin, admin.id)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('blocks a non-super admin from removing a super administrator', async () => {
+  it('blocks a non-super admin from archiving a super administrator', async () => {
     const { service } = makeService({ roles: [Role.SUPER_ADMIN] });
-    await expect(service.remove(admin, 'target-id')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.archive(admin, 'target-id')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('refuses to remove the last super administrator', async () => {
+  it('refuses to archive the last super administrator', async () => {
     const { service } = makeService({ roles: [Role.SUPER_ADMIN] }, 1);
-    await expect(service.remove(superAdmin, 'target-id')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.archive(superAdmin, 'target-id')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('refuses to demote the last super administrator via setRoles', async () => {
@@ -144,6 +160,54 @@ describe('UsersService — lifecycle transitions', () => {
     await service.update(admin, 'target-id', { status: 'ACTIVE' as never });
     const actions = audit.record.mock.calls.map((c) => c[0].action);
     expect(actions).toContain('ADMIN_USER_REACTIVATED');
+  });
+});
+
+describe('UsersService — deletion safety (only unlinked accounts)', () => {
+  it('permanently deletes an unlinked user and frees the email', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL] }); // no links
+    const res = await service.hardDelete(superAdmin, 'target-id');
+    expect(res).toMatchObject({ deleted: true, id: 'target-id', email: 'target@example.test' });
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'target-id' } });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_DELETED_PERMANENTLY' }));
+  });
+
+  it('blocks hard delete when linked to a case (and audits the block)', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL], links: { count: { caseTeamMembers: 2 } } });
+    await expect(service.hardDelete(superAdmin, 'target-id')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_DELETE_BLOCKED_LINKED_RECORDS' }));
+  });
+
+  it('blocks hard delete when linked to an arbitrator profile', async () => {
+    const { service } = makeService({ roles: [Role.ARBITRATOR], links: { arbitrator: true } });
+    await expect(service.hardDelete(superAdmin, 'target-id')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('blocks hard delete when linked to audit logs', async () => {
+    const { service } = makeService({ roles: [Role.INDIVIDUAL], links: { count: { auditLogs: 15 } } });
+    await expect(service.hardDelete(superAdmin, 'target-id')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('deleteCheck reports blocking counts and audits the check', async () => {
+    const { service, audit } = makeService({ roles: [Role.INDIVIDUAL], links: { count: { caseTeamMembers: 2, documentsUploaded: 4 }, casesFiled: 1 } });
+    const res = await service.deleteCheck(superAdmin, 'target-id');
+    expect(res.canDelete).toBe(false);
+    expect(res.blockers).toMatchObject({ 'Case memberships': 2, 'Documents': 4, 'Cases filed': 1 });
+    expect(res.total).toBe(7);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_DELETE_CHECKED' }));
+  });
+
+  it('blocks a non-super-admin from hard-deleting a user', async () => {
+    const { service } = makeService({ roles: [Role.INDIVIDUAL] });
+    await expect(service.hardDelete(admin, 'target-id')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('still allows archiving a linked user', async () => {
+    const { service, audit } = makeService({ roles: [Role.INDIVIDUAL], links: { count: { auditLogs: 5 } } });
+    const res = await service.archive(admin, 'target-id');
+    expect(res).toEqual({ archived: true, id: 'target-id' });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_ARCHIVED' }));
   });
 });
 

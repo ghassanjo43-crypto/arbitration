@@ -36,7 +36,12 @@ export class UsersService {
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        include: { profile: true, roles: true, caseTeamMembers: { where: { active: true }, select: { caseRole: true } } },
+        include: {
+          profile: true, roles: true,
+          caseTeamMembers: { where: { active: true }, select: { caseRole: true } },
+          individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
+          _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+        },
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip: (page - 1) * pageSize,
@@ -49,7 +54,12 @@ export class UsersService {
   async get(id: string) {
     const u = await this.prisma.user.findUnique({
       where: { id },
-      include: { profile: true, roles: true, caseTeamMembers: { where: { active: true }, select: { caseRole: true } } },
+      include: {
+        profile: true, roles: true,
+        caseTeamMembers: { where: { active: true }, select: { caseRole: true } },
+        individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
+        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+      },
     });
     if (!u) throw new NotFoundException('User not found.');
     return this.toView(u);
@@ -294,12 +304,101 @@ export class UsersService {
     return { reset: true, mode: 'set-password' as const, ...(generated ? { temporaryPassword: generated } : {}) };
   }
 
+  // ---- Deletion safety: only unlinked accounts may be permanently removed ----
+
   /**
-   * Soft-removes a user: marks deletedAt, deactivates the account, and revokes all
-   * sessions. Records are retained (legal/audit) rather than hard-deleted.
+   * Comprehensive dependency scan. Returns the per-category counts of platform
+   * records linked to this user. A non-empty result means the account MUST NOT be
+   * hard-deleted (case history, audit logs, awards, arbitrator records etc. must
+   * stay linked to the original user id) — it may only be archived/deactivated.
    */
-  async remove(actor: AuthUser, id: string) {
-    if (id === actor.id) throw new BadRequestException('You cannot remove your own account.');
+  private async computeDeleteBlockers(id: string): Promise<{ canDelete: boolean; blockers: Record<string, number>; total: number }> {
+    const u = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
+        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+      },
+    });
+    if (!u) throw new NotFoundException('User not found.');
+
+    const blockers: Record<string, number> = {};
+    const add = (label: string, n: number) => { if (n > 0) blockers[label] = (blockers[label] ?? 0) + n; };
+    const c = u._count;
+    add('Case memberships', c.caseTeamMembers);
+    add('Documents', c.documentsUploaded + c.documentActivity);
+    add('Messages', c.messagesSent);
+    add('Audit logs', c.auditLogs);
+    add('Support tickets', c.supportTickets);
+    add('Identity checks', c.identityChecks);
+    add('Rule acceptances', c.ruleAcceptances);
+    add('Company memberships', c.companyMembers);
+    if (u.individual) add('Individual profile', 1);
+    if (u.lawyer) add('Lawyer profile', 1);
+    if (u.arbitrator) add('Arbitrator profile', 1);
+
+    // Indirect links.
+    add('Cases filed', await this.prisma.case.count({ where: { filedById: id } }));
+    if (u.arbitrator) {
+      add('Arbitrator appointments', await this.prisma.appointmentInvitation.count({ where: { arbitratorId: u.arbitrator.id } }));
+      add('Conflict disclosures', await this.prisma.conflictDisclosure.count({ where: { arbitratorId: u.arbitrator.id } }));
+    }
+    add('Legal holds', await this.prisma.legalHold.count({ where: { OR: [{ placedById: id }, { releasedById: id }] } }));
+
+    const total = Object.values(blockers).reduce((a, b) => a + b, 0);
+    return { canDelete: total === 0, blockers, total };
+  }
+
+  /** Pre-flight dependency check exposed to the UI. Audited as USER_DELETE_CHECKED. */
+  async deleteCheck(actor: AuthUser, id: string) {
+    const target = await this.loadTarget(id);
+    this.assertCanManage(actor, target, id);
+    const result = await this.computeDeleteBlockers(id);
+    await this.audit.record({
+      userId: actor.id, action: 'USER_DELETE_CHECKED', entityType: 'User', entityId: id,
+      metadata: { canDelete: result.canDelete, total: result.total, by: actor.email },
+    });
+    return { id, email: target.email, ...result };
+  }
+
+  /**
+   * PERMANENT delete — only for accounts with NO linked records. Super-admin only.
+   * If anything is linked it is refused (the account must be archived instead), so
+   * case history, audit logs, awards and arbitrator records always stay intact.
+   */
+  async hardDelete(actor: AuthUser, id: string) {
+    this.assertCanManageRoles(actor); // super administrator only
+    if (id === actor.id) throw new BadRequestException('You cannot delete your own account.');
+    const target = await this.loadTarget(id);
+    this.assertCanManage(actor, target, id);
+
+    const check = await this.computeDeleteBlockers(id);
+    if (!check.canDelete) {
+      await this.audit.record({
+        userId: actor.id, action: 'USER_DELETE_BLOCKED_LINKED_RECORDS', entityType: 'User', entityId: id,
+        metadata: { blockers: check.blockers, by: actor.email },
+      });
+      const summary = Object.entries(check.blockers).map(([k, v]) => `${k}: ${v}`).join(', ');
+      throw new ConflictException(`This user cannot be deleted because the account is linked to platform records (${summary}). You may deactivate/archive the user instead.`);
+    }
+
+    const email = target.email;
+    await this.prisma.user.delete({ where: { id } }); // frees the email for reuse
+    // Audit AFTER deletion, recorded under the acting admin so the trail persists.
+    await this.audit.record({
+      userId: actor.id, action: 'USER_DELETED_PERMANENTLY', entityType: 'User', entityId: id,
+      metadata: { email, by: actor.email },
+    });
+    return { deleted: true, id, email };
+  }
+
+  /**
+   * Archive (soft-delete) a user: marks deletedAt, deactivates, revokes sessions.
+   * Records are retained and stay linked by user id — the safe option for any
+   * account that has platform activity.
+   */
+  async archive(actor: AuthUser, id: string) {
+    if (id === actor.id) throw new BadRequestException('You cannot archive your own account.');
     const target = await this.loadTarget(id);
     this.assertCanManage(actor, target, id);
     await this.assertNotLastSuperAdmin(target, UserStatus.DEACTIVATED);
@@ -309,13 +408,10 @@ export class UsersService {
       this.prisma.session.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
     await this.audit.record({
-      userId: actor.id,
-      action: 'ADMIN_USER_REMOVED',
-      entityType: 'User',
-      entityId: id,
+      userId: actor.id, action: 'USER_ARCHIVED', entityType: 'User', entityId: id,
       metadata: { email: target.email, by: actor.email },
     });
-    return { removed: true, id };
+    return { archived: true, id };
   }
 
   /** Reverses a soft-removal. */
@@ -379,8 +475,20 @@ export class UsersService {
     profile: { displayName: string; firstName: string; lastName: string } | null;
     roles: { role: string }[];
     caseTeamMembers?: { caseRole: string }[];
+    individual?: { id: string } | null; lawyer?: { id: string } | null; arbitrator?: { id: string } | null;
+    _count?: { caseTeamMembers: number; documentsUploaded: number; documentActivity: number; messagesSent: number; auditLogs: number; supportTickets: number; identityChecks: number; ruleAcceptances: number; companyMembers: number };
   }) {
     const roles = u.roles.map((r) => r.role);
+    // Cheap "is this account linked to anything?" signal for the list (drives the
+    // Delete-vs-Archive button). The authoritative, comprehensive check runs in
+    // deleteCheck()/hardDelete() on the server. null = not computed (caller omitted
+    // counts) → the UI treats it as "linked" and offers Archive, never hard-delete.
+    const c = u._count;
+    const linkedRecordCount = c
+      ? c.caseTeamMembers + c.documentsUploaded + c.documentActivity + c.messagesSent + c.auditLogs +
+        c.supportTickets + c.identityChecks + c.ruleAcceptances + c.companyMembers +
+        (u.individual ? 1 : 0) + (u.lawyer ? 1 : 0) + (u.arbitrator ? 1 : 0)
+      : null;
     return {
       id: u.id,
       email: u.email,
@@ -394,6 +502,7 @@ export class UsersService {
       // "private individual" label; case roles come from case membership.
       identityType: identityForRoles(roles as Role[]),
       caseRoles: [...new Set((u.caseTeamMembers ?? []).map((m) => m.caseRole))],
+      linkedRecordCount,
       deletedAt: u.deletedAt,
       createdAt: u.createdAt,
     };
