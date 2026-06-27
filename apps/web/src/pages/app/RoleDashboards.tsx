@@ -17,19 +17,20 @@ function StatCard({ label, value, tone = 'info' }: { label: string; value: numbe
   );
 }
 
-function CaseTable({ rows, emptyText }: { rows: { id: string; reference: string; title: string; stage: string }[]; emptyText: string }) {
+function CaseTable({ rows, emptyText, adminLinks }: { rows: { id: string; reference: string; title: string; stage: string }[]; emptyText: string; adminLinks?: boolean }) {
   const { t } = useTranslation();
   if (!rows.length) return <p className="muted">{emptyText}</p>;
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <table className="table">
-        <thead><tr><th>{t('dashboards.reference')}</th><th>Title</th><th>Stage</th></tr></thead>
+        <thead><tr><th>{t('dashboards.reference')}</th><th>Title</th><th>Stage</th>{adminLinks && <th></th>}</tr></thead>
         <tbody>
           {rows.map((c) => (
             <tr key={c.id}>
               <td><Link to={`/app/cases/${c.id}`}>{c.reference}</Link></td>
               <td>{c.title}</td>
               <td><span className="badge badge--info">{c.stage.replaceAll('_', ' ')}</span></td>
+              {adminLinks && <td><Link className="btn btn--ghost btn--sm" to={`/app/cases/${c.id}?tab=admin`}>Administer</Link></td>}
             </tr>
           ))}
         </tbody>
@@ -82,8 +83,12 @@ export function RegistrarDashboard() {
         <StatCard label={t('dashboards.conflictDisclosures')} value={data.conflictDisclosures} />
       </div>
 
-      <Section title={t('dashboards.newFilings')}><CaseTable rows={data.newFilings} emptyText={t('dashboards.empty')} /></Section>
-      <Section title={t('dashboards.deficiencies')}><CaseTable rows={data.deficiencies} emptyText={t('dashboards.empty')} /></Section>
+      <p className="field__hint" style={{ marginTop: 'var(--sp-4)' }}>
+        Open any case and use its <strong>Administration</strong> tab to edit administrative details, update the stage,
+        record notes, manage filings, notices/service, the procedural calendar and tribunal appointment.
+      </p>
+      <Section title={t('dashboards.newFilings')}><CaseTable rows={data.newFilings} emptyText={t('dashboards.empty')} adminLinks /></Section>
+      <Section title={t('dashboards.deficiencies')}><CaseTable rows={data.deficiencies} emptyText={t('dashboards.empty')} adminLinks /></Section>
 
       <Section title={t('dashboards.serviceFailures')}>
         {data.serviceFailures.length ? (

@@ -16,6 +16,13 @@ export interface CaseMembership {
   isTribunal: boolean;
   isParty: boolean;
   isRegistrar: boolean;
+  /**
+   * Administrative reach: the user holds an institutional administrative role
+   * (registrar/admin via CASE_VIEW_QUEUE, or super-admin) and may administer this
+   * case even without being a case-team member. This is what authorises the
+   * registrar case-administration surface — never deliberations or merits.
+   */
+  canAdminister: boolean;
 }
 
 /**
@@ -50,7 +57,8 @@ export class CaseAccessService {
       ].includes(r),
     );
     const isRegistrar = caseRoles.includes(CaseRole.CASE_REGISTRAR);
-    return { caseRoles, sides, isTribunal, isParty, isRegistrar };
+    const canAdminister = this.hasAdministrativeReach(user);
+    return { caseRoles, sides, isTribunal, isParty, isRegistrar, canAdminister };
   }
 
   /** Any authorised connection to the case (membership OR administrative role). */
@@ -59,8 +67,7 @@ export class CaseAccessService {
     if (!exists) throw new NotFoundException('Case not found.');
 
     const membership = await this.getMembership(user, caseId);
-    const isStaff = this.hasAdministrativeReach(user);
-    if (membership.caseRoles.length === 0 && !isStaff) {
+    if (membership.caseRoles.length === 0 && !membership.canAdminister) {
       throw new ForbiddenException('You are not authorised to access this case.');
     }
     return membership;

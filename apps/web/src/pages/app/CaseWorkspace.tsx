@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { ORDERED_STAGES } from '@gaap/shared';
@@ -31,7 +31,7 @@ interface CaseDetail {
   parties: { id: string; side: string; legalName: string }[];
   statusHistory: { id: string; toStage: string; createdAt: string }[];
   tribunal?: { members: { id: string; role: string }[] } | null;
-  _membership: { isTribunal: boolean; isRegistrar?: boolean; caseRoles: string[] };
+  _membership: { isTribunal: boolean; isRegistrar?: boolean; canAdminister?: boolean; caseRoles: string[] };
 }
 
 type TabKey = 'overview' | 'timeline' | 'tribunal' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'delivery' | 'deliberations' | 'admin';
@@ -40,8 +40,10 @@ const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPO
 
 export function CaseWorkspace() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { t } = useTranslation();
-  const [tab, setTab] = useState<TabKey>('overview');
+  // Allow deep-linking to a specific tab, e.g. /app/cases/:id?tab=admin.
+  const [tab, setTab] = useState<TabKey>(() => (searchParams.get('tab') as TabKey) || 'overview');
 
   const { data, isLoading, isError } = useQuery<CaseDetail>({
     queryKey: ['case', id],
@@ -54,7 +56,9 @@ export function CaseWorkspace() {
 
   const currentIndex = ORDERED_STAGES.indexOf(data.stage as never);
   const isTribunal = data._membership.isTribunal;
-  const isRegistry = !!data._membership.isRegistrar;
+  // Registry/administrative reach: a case-team registrar OR any user with
+  // institutional administrative authority (global registrar/admin/super-admin).
+  const isRegistry = !!data._membership.isRegistrar || !!data._membership.canAdminister;
 
   const isParty = data._membership.caseRoles.some((r) => PARTY_ROLES.includes(r));
 
@@ -75,6 +79,9 @@ export function CaseWorkspace() {
     ...(isRegistry ? [{ key: 'admin' as TabKey, label: t('case.tab.administration') }] : []),
   ];
 
+  // A deep-linked tab the current user can't see falls back to the overview.
+  const activeTab: TabKey = tabs.some((tt) => tt.key === tab) ? tab : 'overview';
+
   return (
     <div className="section">
       <div className="container">
@@ -90,14 +97,14 @@ export function CaseWorkspace() {
 
         <nav className="tabs" role="tablist" aria-label="Case sections">
           {tabs.map((t) => (
-            <button key={t.key} role="tab" aria-selected={tab === t.key} className={`tab ${tab === t.key ? 'tab--active' : ''}`} onClick={() => setTab(t.key)}>
+            <button key={t.key} role="tab" aria-selected={activeTab === t.key} className={`tab ${activeTab === t.key ? 'tab--active' : ''}`} onClick={() => setTab(t.key)}>
               {t.label}
             </button>
           ))}
         </nav>
 
         <div className="tab-panel">
-          {tab === 'overview' && (
+          {activeTab === 'overview' && (
             <div className="grid grid-2" style={{ alignItems: 'start' }}>
               <div className="card">
                 <h2 className="card__title">{t('case.parties')}</h2>
@@ -124,17 +131,17 @@ export function CaseWorkspace() {
               </div>
             </div>
           )}
-          {tab === 'timeline' && <ProceduralTimelineTab caseId={data.id} stage={data.stage} />}
-          {tab === 'tribunal' && <TribunalTab caseId={data.id} />}
-          {tab === 'rules' && <RulesProcedureTab caseId={data.id} isParty={isParty} />}
-          {tab === 'documents' && <DocumentsTab caseId={data.id} />}
-          {tab === 'messages' && <MessagesTab caseId={data.id} />}
-          {tab === 'calendar' && <CalendarTab caseId={data.id} isTribunal={isTribunal} />}
-          {tab === 'finance' && <FinanceTab caseId={data.id} />}
-          {tab === 'awards' && <AwardsTab caseId={data.id} isTribunal={isTribunal} />}
-          {tab === 'delivery' && (isTribunal || isRegistry) && <DeliveryTab caseId={data.id} />}
-          {tab === 'deliberations' && isTribunal && <DeliberationsTab caseId={data.id} />}
-          {tab === 'admin' && isRegistry && <CaseAdminTab caseData={data} goTab={setTab} />}
+          {activeTab === 'timeline' && <ProceduralTimelineTab caseId={data.id} stage={data.stage} />}
+          {activeTab === 'tribunal' && <TribunalTab caseId={data.id} />}
+          {activeTab === 'rules' && <RulesProcedureTab caseId={data.id} isParty={isParty} />}
+          {activeTab === 'documents' && <DocumentsTab caseId={data.id} />}
+          {activeTab === 'messages' && <MessagesTab caseId={data.id} />}
+          {activeTab === 'calendar' && <CalendarTab caseId={data.id} isTribunal={isTribunal} />}
+          {activeTab === 'finance' && <FinanceTab caseId={data.id} />}
+          {activeTab === 'awards' && <AwardsTab caseId={data.id} isTribunal={isTribunal} />}
+          {activeTab === 'delivery' && (isTribunal || isRegistry) && <DeliveryTab caseId={data.id} />}
+          {activeTab === 'deliberations' && isTribunal && <DeliberationsTab caseId={data.id} />}
+          {activeTab === 'admin' && isRegistry && <CaseAdminTab caseData={data} goTab={setTab} />}
         </div>
       </div>
     </div>
