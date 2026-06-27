@@ -57,6 +57,7 @@ export function AdminUsers() {
   const [createDraft, setCreateDraft] = useState<{ email: string; firstName: string; lastName: string; roles: string[] }>({ email: '', firstName: '', lastName: '', roles: [] });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<{ data: AdminUser[]; total: number }>({
     queryKey: ['admin-users', search],
@@ -81,23 +82,40 @@ export function AdminUsers() {
     mutationFn: ({ id, identityType }: { id: string; identityType: string }) => api.patch(`/admin/users/${id}/identity`, { identityType }),
     onSuccess: () => { invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
   });
-  // Use useMutation OPTION callbacks (not per-call mutate callbacks): option
-  // callbacks fire reliably regardless of re-render/mount timing, so success
-  // deterministically closes the row. Only one row edits at a time, so clearing
-  // editingDetails/editingRoles unconditionally is correct.
-  const saveDetails = useMutation({
-    mutationFn: ({ id, ...body }: { id: string; firstName: string; lastName: string; email: string; emailVerified: boolean }) =>
-      api.patch(`/admin/users/${id}`, body),
-    onSuccess: () => {
+  // Plain, deterministic save — NO mutation callbacks, NO native confirm, NO form
+  // submit. Local savingUserId drives the button so "Saving…" appears the instant
+  // it is clicked; success/failure are handled inline in this one function.
+  async function handleSaveUserDetails(u: AdminUser) {
+    setSavingUserId(u.id);
+    setError(null);
+    setNotice(null);
+    const nextEmail = detailDraft.email.trim().toLowerCase();
+    try {
+      // Admin user update endpoint (supports email changes). Sends the edited email.
+      const { data: updated } = await api.patch(`/admin/users/${u.id}`, {
+        firstName: detailDraft.firstName,
+        lastName: detailDraft.lastName,
+        email: detailDraft.email,
+        emailVerified: detailDraft.emailVerified,
+      });
+      // Deterministically reflect the saved row immediately (then reconcile via refetch).
+      qc.setQueryData(['admin-users', search], (old: { data: AdminUser[]; total: number } | undefined) =>
+        old
+          ? { ...old, data: old.data.map((r) => (r.id === u.id
+              ? { ...r, ...(updated && typeof updated === 'object' ? updated : {}), email: nextEmail, firstName: detailDraft.firstName, lastName: detailDraft.lastName, emailVerified: detailDraft.emailVerified }
+              : r)) }
+          : old);
       setEditingDetails(null);
       setEditingRoles(null);
       setNotice('User updated');
-      setError(null);
       invalidate();
       void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
-    },
-    onError: (e: unknown) => { setError(apiError(e)); setNotice(null); }, // keep edit mode open
-  });
+    } catch (err) {
+      setError(apiError(err)); // keep edit mode open; input preserved
+    } finally {
+      setSavingUserId(null);
+    }
+  }
   const createUser = useMutation({
     mutationFn: (body: { email: string; firstName: string; lastName: string; roles: string[] }) =>
       api.post('/admin/users', body).then((r) => r.data as { temporaryPassword?: string }),
@@ -208,11 +226,11 @@ export function AdminUsers() {
                               <p className="field__hint" style={{ color: 'var(--c-warning)' }}>⚠ Changing this email changes the user’s login address.</p>
                             )}
                             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                              <button type="button" className="btn btn--primary btn--sm" disabled={saveDetails.isPending}
-                                onClick={() => saveDetails.mutate({ id: u.id, ...detailDraft })}>
-                                {saveDetails.isPending ? 'Saving…' : 'Save'}
+                              <button type="button" className="btn btn--primary btn--sm" disabled={savingUserId === u.id}
+                                onClick={() => { void handleSaveUserDetails(u); }}>
+                                {savingUserId === u.id ? 'Saving…' : 'Save'}
                               </button>
-                              <button type="button" className="btn btn--ghost btn--sm" disabled={saveDetails.isPending} onClick={() => setEditingDetails(null)}>Cancel</button>
+                              <button type="button" className="btn btn--ghost btn--sm" disabled={savingUserId === u.id} onClick={() => setEditingDetails(null)}>Cancel</button>
                             </div>
                           </div>
                         ) : (

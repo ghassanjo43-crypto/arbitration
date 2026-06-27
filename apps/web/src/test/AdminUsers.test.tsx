@@ -216,6 +216,32 @@ describe('AdminUsers — editing the login email', () => {
     expect(await screen.findByText('brand-new@x.test')).toBeInTheDocument();
     expect(screen.getByText('User updated')).toBeInTheDocument();
   });
+
+  it('hard regression: Save fires the PATCH, shows Saving…, then closes with the new email + "User updated"', async () => {
+    const store = users.map((u) => ({ ...u }));
+    get.mockImplementation(() => Promise.resolve({ data: { data: store, total: store.length } }));
+    let resolvePatch!: () => void;
+    patch.mockImplementation((url: string, body: { email?: string }) => {
+      const m = /\/admin\/users\/([^/]+)$/.exec(url);
+      if (m && body?.email) { const r = store.find((x) => x.id === m[1]); if (r) r.email = body.email.toLowerCase(); }
+      return new Promise((res) => { resolvePatch = () => res({ data: {} }); });
+    });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'hard-new@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    // PATCH fired with the NEW email, and the button immediately shows Saving… (disabled).
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ email: 'hard-new@x.test' })));
+    expect(within(row).getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    resolvePatch();
+    // After resolution: edit mode closed, new email shown, success message.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Saving…' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(await screen.findByText('hard-new@x.test')).toBeInTheDocument();
+    expect(screen.getByText('User updated')).toBeInTheDocument();
+  });
 });
 
 describe('AdminUsers — edit/save UX', () => {
