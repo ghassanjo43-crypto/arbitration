@@ -45,6 +45,20 @@ describe('CaseWorkspace — Registrar Administration visibility', () => {
     expect(screen.queryByRole('tab', { name: 'Deliberations' })).not.toBeInTheDocument();
   });
 
+  it('orders Administration immediately after Overview for a registrar', async () => {
+    renderWorkspace({ canAdminister: true });
+    await screen.findByRole('tab', { name: 'Administration' });
+    const names = screen.getAllByRole('tab').map((el) => el.textContent);
+    expect(names[0]).toBe('Overview');
+    expect(names[1]).toBe('Administration');
+  });
+
+  it('does not show Administration to an arbitrator/tribunal member', async () => {
+    renderWorkspace({ isTribunal: true, caseRoles: ['TRIBUNAL_MEMBER'] });
+    expect(await screen.findByRole('tab', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Administration' })).not.toBeInTheDocument();
+  });
+
   it('also shows it to a case-team registrar', async () => {
     renderWorkspace({ isRegistrar: true, caseRoles: ['CASE_REGISTRAR'] });
     expect(await screen.findByRole('tab', { name: 'Administration' })).toBeInTheDocument();

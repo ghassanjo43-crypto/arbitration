@@ -64,6 +64,9 @@ export function CaseWorkspace() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: t('case.tab.overview') },
+    // For registry/administrative users, Administration is the primary operational
+    // area, so it sits immediately after Overview (ahead of the merits views).
+    ...(isRegistry ? [{ key: 'admin' as TabKey, label: t('case.tab.administration') }] : []),
     { key: 'timeline', label: t('case.tab.timeline') },
     { key: 'tribunal', label: t('case.tab.tribunal') },
     { key: 'rules', label: t('case.tab.rules') },
@@ -71,12 +74,10 @@ export function CaseWorkspace() {
     { key: 'messages', label: t('case.tab.messages') },
     { key: 'calendar', label: t('case.tab.calendar') },
     { key: 'finance', label: t('case.tab.finance') },
-    { key: 'awards', label: t('case.tab.awards') },
     // Delivery evidence is a registry/tribunal view (shows recipient addresses).
     ...(isTribunal || isRegistry ? [{ key: 'delivery' as TabKey, label: t('case.tab.delivery') }] : []),
+    { key: 'awards', label: t('case.tab.awards') },
     ...(isTribunal ? [{ key: 'deliberations' as TabKey, label: t('case.tab.deliberations') }] : []),
-    // Registrar/registry administration (edit admin info, status, notes).
-    ...(isRegistry ? [{ key: 'admin' as TabKey, label: t('case.tab.administration') }] : []),
   ];
 
   // A deep-linked tab the current user can't see falls back to the overview.
