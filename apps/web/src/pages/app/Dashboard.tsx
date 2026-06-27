@@ -101,12 +101,15 @@ function RegistrarQueue() {
 
 interface Invitation {
   id: string;
+  caseId: string;
   proposedRole: string;
   status: string;
   case: { reference: string; title: string };
 }
 
-function ArbitratorInvitations() {
+const OPEN_STATUSES = ['INVITED', 'CONFLICT_CHECK'];
+
+export function ArbitratorInvitations() {
   const qc = useQueryClient();
   const { data } = useQuery<Invitation[]>({ queryKey: ['my-invitations'], queryFn: async () => (await api.get('/appointments/mine')).data });
 
@@ -124,17 +127,50 @@ function ArbitratorInvitations() {
       <h2>Appointment invitations</h2>
       {data?.length ? (
         <div className="grid grid-2">
-          {data.map((inv) => (
-            <article key={inv.id} className="card">
-              <div className="arb-card__meta"><span className="badge badge--info">{inv.status}</span><span className="badge">{inv.proposedRole}</span></div>
-              <h4 style={{ margin: 'var(--sp-2) 0 4px' }}>{inv.case.title}</h4>
-              <p className="field__hint">{inv.case.reference}</p>
-              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                <button className="btn btn--ghost" disabled={disclose.isPending} onClick={() => disclose.mutate(inv.id)}>Declare no conflict</button>
-                <button className="btn btn--primary" disabled={accept.isPending} onClick={() => accept.mutate(inv.id)}>Accept appointment</button>
-              </div>
-            </article>
-          ))}
+          {data.map((inv) => {
+            const isOpen = OPEN_STATUSES.includes(inv.status);
+            const isAccepted = inv.status === 'ACCEPTED';
+            const isChair = inv.proposedRole === 'CHAIR';
+            const caseLink = (tab: string) => `/app/cases/${inv.caseId}?tab=${tab}`;
+            return (
+              <article key={inv.id} className="card">
+                {/* Informational status/role chips — NOT actions. */}
+                <div className="arb-card__meta">
+                  <span className="field__hint">Status:</span>
+                  <span className="badge badge--info" aria-label={`Status ${inv.status}`}>{inv.status}</span>
+                  <span className="field__hint" style={{ marginInlineStart: 'var(--sp-2)' }}>Role:</span>
+                  <span className="badge badge--gold" aria-label={`Role ${inv.proposedRole}`}>{inv.proposedRole}</span>
+                </div>
+                <h4 style={{ margin: 'var(--sp-2) 0 4px' }}>{inv.case.title}</h4>
+                <p className="field__hint">{inv.case.reference}</p>
+
+                {isChair && isAccepted && (
+                  <p className="field__hint"><strong>You are tribunal chair for this case.</strong></p>
+                )}
+
+                {/* Actions depend on the invitation state. */}
+                <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                  {isOpen && (
+                    <>
+                      <button className="btn btn--ghost btn--sm" disabled={disclose.isPending} onClick={() => disclose.mutate(inv.id)}>Declare no conflict</button>
+                      <button className="btn btn--primary btn--sm" disabled={accept.isPending} onClick={() => accept.mutate(inv.id)}>Accept appointment</button>
+                    </>
+                  )}
+                  {isAccepted && (
+                    <>
+                      <Link className="btn btn--primary btn--sm" to={caseLink('tribunal')}>Open case</Link>
+                      <Link className="btn btn--ghost btn--sm" to={caseLink('deliberations')}>Open deliberations</Link>
+                      <Link className="btn btn--ghost btn--sm" to={caseLink('awards')}>Open awards</Link>
+                      {isChair && <Link className="btn btn--ghost btn--sm" to={caseLink('timeline')}>Manage procedural directions</Link>}
+                    </>
+                  )}
+                  {!isOpen && !isAccepted && (
+                    <span className="field__hint">No action required.</span>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : <div className="empty-state">No pending invitations.</div>}
     </section>
