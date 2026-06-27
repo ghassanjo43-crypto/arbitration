@@ -1,6 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { validate } from 'class-validator';
 import { Permission, Role } from '@gaap/shared';
 import { UsersService } from './users.service';
+import { UpdateUserDto } from './dto';
 import { AuthUser } from '../auth/types';
 
 type TargetSpec = { id?: string; roles: string[]; status?: string; email?: string; emailVerified?: boolean };
@@ -142,6 +144,54 @@ describe('UsersService — lifecycle transitions', () => {
     await service.update(admin, 'target-id', { status: 'ACTIVE' as never });
     const actions = audit.record.mock.calls.map((c) => c[0].action);
     expect(actions).toContain('ADMIN_USER_REACTIVATED');
+  });
+});
+
+describe('UsersService — login email update', () => {
+  it('updates a user email (normalized lowercase), re-unverifies, and audits old → new', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { email: 'NEW@X.test' });
+    expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'target-id' },
+      data: expect.objectContaining({ email: 'new@x.test', emailVerified: false }),
+    }));
+    const emailEvent = audit.record.mock.calls.map((c) => c[0]).find((e) => e.action === 'USER_EMAIL_UPDATED');
+    expect(emailEvent).toBeDefined();
+    expect(emailEvent!.metadata).toMatchObject({ from: 'target@example.test', to: 'new@x.test' });
+  });
+
+  it('rejects a duplicate email', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    prisma.user.findUnique.mockImplementation((args: { where: { id?: string; email?: string } }) =>
+      args.where.email
+        ? Promise.resolve({ id: 'someone-else' }) // clash on the target email
+        : Promise.resolve({ id: 'target-id', email: 'target@example.test', status: 'ACTIVE', emailVerified: true, roles: [{ role: Role.INDIVIDUAL }] }),
+    );
+    await expect(service.update(superAdmin, 'target-id', { email: 'dup@x.test' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('keeps account linkage by user id (updates the user by id, never by email)', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { email: 'moved@x.test' });
+    // Memberships, arbitrator profile, appointments, audit and case history all
+    // reference the user id, which is unchanged by an email edit.
+    expect(prisma.user.update.mock.calls[0][0].where).toEqual({ id: 'target-id' });
+  });
+});
+
+describe('UpdateUserDto — email validation', () => {
+  it('rejects an invalid email', async () => {
+    const dto = new UpdateUserDto();
+    dto.email = 'not-an-email';
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'email')).toBe(true);
+  });
+
+  it('accepts a valid email', async () => {
+    const dto = new UpdateUserDto();
+    dto.email = 'good@x.test';
+    const errors = await validate(dto);
+    expect(errors.find((e) => e.property === 'email')).toBeUndefined();
   });
 });
 

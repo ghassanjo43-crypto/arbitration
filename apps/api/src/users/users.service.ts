@@ -112,10 +112,14 @@ export class UsersService {
       if (clash && clash.id !== id) throw new ConflictException('A user with that email already exists.');
     }
 
-    const verificationChange =
-      dto.emailVerified !== undefined && dto.emailVerified !== target.emailVerified
-        ? { emailVerified: dto.emailVerified, emailVerifiedAt: dto.emailVerified ? new Date() : null }
-        : {};
+    let verificationChange: { emailVerified?: boolean; emailVerifiedAt?: Date | null } = {};
+    if (dto.emailVerified !== undefined && dto.emailVerified !== target.emailVerified) {
+      verificationChange = { emailVerified: dto.emailVerified, emailVerifiedAt: dto.emailVerified ? new Date() : null };
+    } else if (nextEmail && dto.emailVerified === undefined) {
+      // Email changed without an explicit verification decision → require the new
+      // address to be re-verified (does not touch the password).
+      verificationChange = { emailVerified: false, emailVerifiedAt: null };
+    }
 
     const updated = await this.prisma.user.update({
       where: { id },
@@ -150,6 +154,17 @@ export class UsersService {
         ...(dto.firstName || dto.lastName || dto.displayName ? { profileChanged: true } : {}),
       },
     });
+
+    // Distinct, audit-friendly login-email change event recording old → new.
+    if (nextEmail) {
+      await this.audit.record({
+        userId: actor.id,
+        action: 'USER_EMAIL_UPDATED',
+        entityType: 'User',
+        entityId: id,
+        metadata: { from: target.email, to: nextEmail, by: actor.email },
+      });
+    }
 
     // Distinct, audit-friendly events for each lifecycle transition.
     if (dto.status && dto.status !== target.status) {

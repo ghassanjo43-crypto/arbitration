@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const get = vi.fn();
@@ -120,5 +120,32 @@ describe('AdminUsers — action state by lifecycle status', () => {
     const suspended = await rowFor('suspended@x.test');
     // Inactive rows have no status select, so the badge is unambiguous.
     expect(within(suspended).getByText('SUSPENDED')).toBeInTheDocument();
+  });
+});
+
+describe('AdminUsers — editing the login email', () => {
+  it('lets a Super Admin change a user email (with confirmation) and PATCHes it', async () => {
+    patch.mockResolvedValue({ data: {} });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'newmail@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ email: 'newmail@x.test' })));
+    confirmSpy.mockRestore();
+  });
+
+  it('does not PATCH when the email-change confirmation is declined', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'declined@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

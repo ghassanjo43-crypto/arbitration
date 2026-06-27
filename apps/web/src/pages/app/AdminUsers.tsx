@@ -63,7 +63,11 @@ export function AdminUsers() {
   const saveDetails = useMutation({
     mutationFn: ({ id, ...body }: { id: string; firstName: string; lastName: string; email: string; emailVerified: boolean }) =>
       api.patch(`/admin/users/${id}`, body),
-    onSuccess: () => { setEditingDetails(null); setNotice('User details updated.'); setError(null); invalidate(); },
+    onSuccess: () => {
+      setEditingDetails(null); setNotice('User details updated.'); setError(null); invalidate();
+      // If the edited user is an arbitrator, the access-email directory should reflect it.
+      void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
+    },
   });
   const createUser = useMutation({
     mutationFn: (body: { email: string; firstName: string; lastName: string; roles: string[] }) =>
@@ -166,7 +170,11 @@ export function AdminUsers() {
                             <input className="input" placeholder="Last" value={detailDraft.lastName} onChange={(e) => setDetailDraft((d) => ({ ...d, lastName: e.target.value }))} />
                             <label className="check-row"><input type="checkbox" checked={detailDraft.emailVerified} onChange={(e) => setDetailDraft((d) => ({ ...d, emailVerified: e.target.checked }))} /> Email verified</label>
                             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                              <button className="btn btn--primary btn--sm" onClick={() => wrap(() => saveDetails.mutateAsync({ id: u.id, ...detailDraft }))}>Save</button>
+                              <button className="btn btn--primary btn--sm" onClick={() => {
+                                const emailChanged = detailDraft.email.trim().toLowerCase() !== u.email.toLowerCase();
+                                if (emailChanged && !window.confirm('Changing this email changes the user’s login address. Continue?')) return;
+                                void wrap(() => saveDetails.mutateAsync({ id: u.id, ...detailDraft }));
+                              }}>Save</button>
                               <button className="btn btn--ghost btn--sm" onClick={() => setEditingDetails(null)}>Cancel</button>
                             </div>
                           </div>
