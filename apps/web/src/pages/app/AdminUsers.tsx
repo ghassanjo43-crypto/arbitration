@@ -191,14 +191,19 @@ export function AdminUsers() {
                             <input className="input" placeholder="First" value={detailDraft.firstName} onChange={(e) => setDetailDraft((d) => ({ ...d, firstName: e.target.value }))} />
                             <input className="input" placeholder="Last" value={detailDraft.lastName} onChange={(e) => setDetailDraft((d) => ({ ...d, lastName: e.target.value }))} />
                             <label className="check-row"><input type="checkbox" checked={detailDraft.emailVerified} onChange={(e) => setDetailDraft((d) => ({ ...d, emailVerified: e.target.checked }))} /> Email verified</label>
+                            {/* Inline (non-blocking) warning instead of a native confirm dialog — a
+                                browser-suppressed confirm() used to silently block the save. */}
+                            {detailDraft.email.trim().toLowerCase() !== u.email.toLowerCase() && (
+                              <p className="field__hint" style={{ color: 'var(--c-warning)' }}>⚠ Changing this email changes the user’s login address.</p>
+                            )}
                             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
                               <button className="btn btn--primary btn--sm" disabled={saveDetails.isPending} onClick={() => {
-                                const emailChanged = detailDraft.email.trim().toLowerCase() !== u.email.toLowerCase();
-                                if (emailChanged && !window.confirm('Changing this email changes the user’s login address. Continue?')) return;
                                 saveDetails.mutate({ id: u.id, ...detailDraft }, {
                                   onSuccess: () => {
-                                    // Close edit mode, surface success, and refresh the row(s).
+                                    // Deterministically clear ALL edit state for the row, surface
+                                    // success, and refresh the user + arbitrator lists.
                                     setEditingDetails(null);
+                                    setEditingRoles(null);
                                     setNotice('User updated');
                                     setError(null);
                                     invalidate();

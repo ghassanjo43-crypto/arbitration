@@ -168,29 +168,53 @@ describe('AdminUsers — arbitration classification (no generic Private Individu
 });
 
 describe('AdminUsers — editing the login email', () => {
-  it('lets a Super Admin change a user email (with confirmation) and PATCHes it', async () => {
-    patch.mockResolvedValue({ data: {} });
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderPage();
+  // A mutable store so a refetch after save reflects the saved values — and NO
+  // window.confirm: the save must not depend on a native dialog (which a browser
+  // can suppress, silently blocking the save and leaving the row stuck open).
+  function renderWithStore() {
+    const store = users.map((u) => ({ ...u }));
+    get.mockImplementation(() => Promise.resolve({ data: { data: store, total: store.length } }));
+    patch.mockImplementation((url: string, body: { email?: string }) => {
+      const m = /\/admin\/users\/([^/]+)$/.exec(url);
+      if (m && body?.email) { const row = store.find((r) => r.id === m[1]); if (row) row.email = body.email.toLowerCase(); }
+      return Promise.resolve({ data: {} });
+    });
+    return renderPage();
+  }
+
+  it('PATCHes the new email without requiring a native confirm dialog', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    renderWithStore();
     const row = await rowFor('active@x.test');
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'newmail@x.test' } });
     fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
-    expect(confirmSpy).toHaveBeenCalled();
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ email: 'newmail@x.test' })));
+    expect(confirmSpy).not.toHaveBeenCalled(); // no blocking dialog
     confirmSpy.mockRestore();
   });
 
-  it('does not PATCH when the email-change confirmation is declined', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  it('shows an inline login-address warning once the email is changed', async () => {
     renderPage();
     const row = await rowFor('active@x.test');
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
-    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'declined@x.test' } });
+    expect(within(row).queryByText(/changes the user’s login address/i)).not.toBeInTheDocument();
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'changed@x.test' } });
+    expect(within(row).getByText(/changes the user’s login address/i)).toBeInTheDocument();
+  });
+
+  // Reproduces the exact live scenario from the bug report.
+  it('regression: after a successful email save, no Save/Cancel remain and the new email shows', async () => {
+    renderWithStore();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'brand-new@x.test' } });
     fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(patch).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ email: 'brand-new@x.test' })));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(await screen.findByText('brand-new@x.test')).toBeInTheDocument();
+    expect(screen.getByText('User updated')).toBeInTheDocument();
   });
 });
 
