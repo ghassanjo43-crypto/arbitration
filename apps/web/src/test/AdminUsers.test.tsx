@@ -193,3 +193,77 @@ describe('AdminUsers — editing the login email', () => {
     confirmSpy.mockRestore();
   });
 });
+
+describe('AdminUsers — edit/save UX', () => {
+  // A mutable store so the post-save refetch reflects the saved values.
+  function renderWithStore() {
+    const store = users.map((u) => ({ ...u }));
+    get.mockImplementation(() => Promise.resolve({ data: { data: store, total: store.length } }));
+    patch.mockImplementation((url: string, body: { email?: string }) => {
+      const m = /\/admin\/users\/([^/]+)$/.exec(url);
+      if (m && body?.email) { const row = store.find((r) => r.id === m[1]); if (row) row.email = body.email.toLowerCase(); }
+      return Promise.resolve({ data: {} });
+    });
+    return renderPage();
+  }
+
+  it('closes edit mode, shows the saved email, and surfaces a success message on save', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderWithStore();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'updated@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ email: 'updated@x.test' })));
+    // Edit mode closed → Save/Cancel gone, updated email + success message shown.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(await screen.findByText('updated@x.test')).toBeInTheDocument();
+    expect(screen.getByText('User updated')).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('keeps edit mode open, shows the error, and preserves input when save fails', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    patch.mockRejectedValue({ response: { data: { message: 'A user with that email already exists.' } } });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'dupe@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+    // Still editing: Save/Cancel remain and the unsaved input is preserved.
+    expect(within(row).getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(within(row).getByDisplayValue('dupe@x.test')).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('Cancel exits edit mode and restores the original values', async () => {
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'temp@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+    expect(within(row).queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    expect(within(row).getByText('active@x.test')).toBeInTheDocument();
+    expect(patch).not.toHaveBeenCalled();
+    // Reopening shows the original value, not the discarded edit.
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    expect(within(row).getByDisplayValue('active@x.test')).toBeInTheDocument();
+  });
+
+  it('disables Save (showing "Saving…") while the request is pending', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let resolvePatch!: (v: unknown) => void;
+    patch.mockReturnValue(new Promise((r) => { resolvePatch = r; }));
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'pending@x.test' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(row).getByRole('button', { name: 'Saving…' })).toBeDisabled());
+    resolvePatch({ data: {} });
+    confirmSpy.mockRestore();
+  });
+});
