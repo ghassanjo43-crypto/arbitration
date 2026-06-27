@@ -20,6 +20,7 @@ import { AdminContent } from './pages/app/AdminContent';
 import { AdminUsers } from './pages/app/AdminUsers';
 import { AdminRulesReview } from './pages/app/AdminRulesReview';
 import { AdminRetention } from './pages/app/AdminRetention';
+import { RolesResponsibilities } from './pages/app/RolesResponsibilities';
 import { RegistrarDashboard, ArbitratorDashboard, FinanceDashboard } from './pages/app/RoleDashboards';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { RulesFull } from './pages/RulesFull';
@@ -60,6 +61,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             {/* Inner pages get a consistent Back / Dashboard bar via AppLayout. */}
             <Route element={<AppLayout />}>
+              <Route path="roles" element={<RolesResponsibilities />} />
               <Route path="cases/:id" element={<CaseWorkspace />} />
               <Route path="desk/registrar" element={<RegistrarDashboard />} />
               <Route path="desk/arbitrator" element={<ArbitratorDashboard />} />

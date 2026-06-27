@@ -181,6 +181,11 @@
 .table td { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-subtle); }
 .table tr:hover td { background: var(--bg-raised); }
 
+/* Roles & Responsibilities — role workflow sequence. */
+.roles-flow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.roles-flow__step { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.roles-flow__arrow { color: var(--text-secondary); font-weight: 600; }
+
 /* In-app Back / Dashboard navigation bar (authenticated pages). */
 .page-nav { padding-top: var(--sp-4); }
 .page-nav__inner { display: flex; gap: var(--sp-2); align-items: center; }
