@@ -1,6 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Permission } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthUser } from '../auth/types';
+
+/** Permissions that authorise viewing arbitrator ACCESS (login) emails. */
+const INTERNAL_VIEW_PERMISSIONS: Permission[] = [
+  Permission.USER_MANAGE, // Super Admin / Admin
+  Permission.APPOINTMENT_MANAGE, // Registrar
+  Permission.ARBITRATOR_APPROVE, // Council / Appointing Authority
+  Permission.CONFLICT_REVIEW, // Registrar / Council
+];
 
 export interface ArbitratorSearchQuery {
   q?: string;
@@ -83,6 +93,60 @@ export class ArbitratorsService {
       include: { legalFields: true, languages: true, references: true },
     });
     return r ? this.toPublic(r, true) : null;
+  }
+
+  /**
+   * Internal administrative listing. Surfaces each arbitrator's ACCESS (login)
+   * email by joining the user account, for authorised internal users only
+   * (Super Admin/Admin, Registrar, Council). Never exposed on the public
+   * directory and never includes passwords or case/deliberation data.
+   */
+  async listInternal(user: AuthUser, query: { q?: string; page?: number; pageSize?: number }) {
+    if (!user.permissions.some((p) => INTERNAL_VIEW_PERMISSIONS.includes(p as Permission))) {
+      throw new ForbiddenException('You are not authorised to view arbitrator access details.');
+    }
+    const page = Math.max(query.page ?? 1, 1);
+    const pageSize = Math.min(query.pageSize ?? 50, 200);
+
+    const where: Prisma.ArbitratorProfileWhereInput = { deletedAt: null };
+    if (query.q) {
+      // Search by arbitrator name OR access (login) email.
+      where.OR = [
+        { fullName: { contains: query.q, mode: 'insensitive' } },
+        { user: { email: { contains: query.q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.arbitratorProfile.findMany({
+        where,
+        include: { user: { select: { email: true, status: true } }, legalFields: true },
+        orderBy: { fullName: 'asc' },
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+      }),
+      this.prisma.arbitratorProfile.count({ where }),
+    ]);
+
+    return {
+      data: rows.map((r) => ({
+        id: r.id,
+        fullName: r.fullName,
+        accessEmail: r.user.email, // the login email — the point of this view
+        // There is no separate public/profile email in the model; expose null so
+        // the UI can show "same as access" rather than inventing one.
+        profileEmail: null as string | null,
+        accountStatus: r.user.status,
+        availability: r.availability,
+        approvalStatus: r.approvalStatus,
+        verificationStatus: r.verificationStatus,
+        professionalTitle: r.professionalTitle,
+        specializations: r.legalFields.filter((f) => f.kind === 'LEGAL_FIELD').map((f) => f.field),
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   private toPublic(r: Prisma.ArbitratorProfileGetPayload<{ include: { legalFields: true; languages: true } }>, full = false) {

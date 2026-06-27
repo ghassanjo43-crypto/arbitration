@@ -21,6 +21,7 @@ import { AdminUsers } from './pages/app/AdminUsers';
 import { AdminRulesReview } from './pages/app/AdminRulesReview';
 import { AdminRetention } from './pages/app/AdminRetention';
 import { RolesResponsibilities } from './pages/app/RolesResponsibilities';
+import { AdminArbitrators } from './pages/app/AdminArbitrators';
 import { RegistrarDashboard, ArbitratorDashboard, FinanceDashboard } from './pages/app/RoleDashboards';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { RulesFull } from './pages/RulesFull';
@@ -70,6 +71,7 @@ export default function App() {
               <Route path="admin/users" element={<AdminUsers />} />
               <Route path="admin/rules" element={<AdminRulesReview />} />
               <Route path="admin/retention" element={<AdminRetention />} />
+              <Route path="admin/arbitrators" element={<AdminArbitrators />} />
             </Route>
           </Route>
 

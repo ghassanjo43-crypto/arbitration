@@ -34,6 +34,7 @@ export function Dashboard() {
             {has(Permission.NEWS_MANAGE) && <Link to="/app/admin/content" className="btn btn--ghost">{t('desk.manageContent')}</Link>}
             {has(Permission.POLICY_MANAGE) && <Link to="/app/admin/rules" className="btn btn--ghost">{t('desk.rulesReview')}</Link>}
             {has(Permission.SETTINGS_MANAGE) && <Link to="/app/admin/retention" className="btn btn--ghost">{t('desk.retention')}</Link>}
+            {(has(Permission.USER_MANAGE) || has(Permission.APPOINTMENT_MANAGE) || has(Permission.ARBITRATOR_APPROVE) || has(Permission.CONFLICT_REVIEW)) && <Link to="/app/admin/arbitrators" className="btn btn--ghost">Arbitrator Access</Link>}
             <Link to="/app/roles" className="btn btn--ghost">User Roles</Link>
             <Link to="/file-a-case" className="btn btn--gold">{t('desk.fileCase')}</Link>
             <button className="btn btn--ghost" onClick={() => void logout()}>{t('desk.signOut')}</button>
