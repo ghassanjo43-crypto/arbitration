@@ -58,6 +58,10 @@ export function AdminUsers() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  // TEMPORARY diagnostic for the live save path — remove once confirmed fixed.
+  const [saveDebug, setSaveDebug] = useState<{ clicked: boolean; email: string; started: boolean; finished: '' | 'success' | 'error'; status: number | null; error: string | null }>(
+    { clicked: false, email: '', started: false, finished: '', status: null, error: null },
+  );
 
   const { data, isLoading } = useQuery<{ data: AdminUser[]; total: number }>({
     queryKey: ['admin-users', search],
@@ -86,18 +90,22 @@ export function AdminUsers() {
   // submit. Local savingUserId drives the button so "Saving…" appears the instant
   // it is clicked; success/failure are handled inline in this one function.
   async function handleSaveUserDetails(u: AdminUser) {
+    setSaveDebug({ clicked: true, email: detailDraft.email, started: false, finished: '', status: null, error: null });
     setSavingUserId(u.id);
     setError(null);
     setNotice(null);
     const nextEmail = detailDraft.email.trim().toLowerCase();
     try {
+      setSaveDebug((d) => ({ ...d, started: true }));
       // Admin user update endpoint (supports email changes). Sends the edited email.
-      const { data: updated } = await api.patch(`/admin/users/${u.id}`, {
+      const res = await api.patch(`/admin/users/${u.id}`, {
         firstName: detailDraft.firstName,
         lastName: detailDraft.lastName,
         email: detailDraft.email,
         emailVerified: detailDraft.emailVerified,
       });
+      const updated = res?.data;
+      setSaveDebug((d) => ({ ...d, finished: 'success', status: res?.status ?? 200 }));
       // Deterministically reflect the saved row immediately (then reconcile via refetch).
       qc.setQueryData(['admin-users', search], (old: { data: AdminUser[]; total: number } | undefined) =>
         old
@@ -111,6 +119,8 @@ export function AdminUsers() {
       invalidate();
       void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
     } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status ?? null;
+      setSaveDebug((d) => ({ ...d, finished: 'error', status, error: apiError(err) }));
       setError(apiError(err)); // keep edit mode open; input preserved
     } finally {
       setSavingUserId(null);
@@ -205,38 +215,43 @@ export function AdminUsers() {
                   // verification. An ACTIVE account is active even if unverified or
                   // carrying a stray deletedAt; only SUSPENDED/DEACTIVATED is inactive.
                   const isActive = u.status === 'ACTIVE';
-                  return (
-                    <tr key={u.id} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
-                      <td>
-                        {editingDetails === u.id ? (
-                          <input className="input" type="email" value={detailDraft.email} onChange={(e) => setDetailDraft((d) => ({ ...d, email: e.target.value }))} />
-                        ) : (
-                          <>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}</>
-                        )}
-                      </td>
-                      <td>
-                        {editingDetails === u.id ? (
-                          <div style={{ display: 'grid', gap: 4 }}>
-                            <input className="input" placeholder="First" value={detailDraft.firstName} onChange={(e) => setDetailDraft((d) => ({ ...d, firstName: e.target.value }))} />
-                            <input className="input" placeholder="Last" value={detailDraft.lastName} onChange={(e) => setDetailDraft((d) => ({ ...d, lastName: e.target.value }))} />
-                            <label className="check-row"><input type="checkbox" checked={detailDraft.emailVerified} onChange={(e) => setDetailDraft((d) => ({ ...d, emailVerified: e.target.checked }))} /> Email verified</label>
-                            {/* Inline (non-blocking) warning instead of a native confirm dialog — a
-                                browser-suppressed confirm() used to silently block the save. */}
+                  // Editing details/email uses a dedicated full-width row so the Save
+                  // button is unambiguous and can never be overlapped by adjacent cells.
+                  if (editingDetails === u.id) {
+                    return (
+                      <tr key={u.id}>
+                        <td colSpan={6}>
+                          <div className="user-edit-form" style={{ display: 'grid', gap: 'var(--sp-2)', maxWidth: 560, padding: 'var(--sp-2)' }}>
+                            <strong>Editing {u.email}</strong>
+                            <label className="field"><span className="field__label">Login email</span>
+                              <input className="input" type="email" aria-label="Login email" value={detailDraft.email} onChange={(e) => setDetailDraft((d) => ({ ...d, email: e.target.value }))} /></label>
                             {detailDraft.email.trim().toLowerCase() !== u.email.toLowerCase() && (
                               <p className="field__hint" style={{ color: 'var(--c-warning)' }}>⚠ Changing this email changes the user’s login address.</p>
                             )}
                             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                              <button type="button" className="btn btn--primary btn--sm" disabled={savingUserId === u.id}
-                                onClick={() => { void handleSaveUserDetails(u); }}>
+                              <input className="input" placeholder="First" value={detailDraft.firstName} onChange={(e) => setDetailDraft((d) => ({ ...d, firstName: e.target.value }))} />
+                              <input className="input" placeholder="Last" value={detailDraft.lastName} onChange={(e) => setDetailDraft((d) => ({ ...d, lastName: e.target.value }))} />
+                            </div>
+                            <label className="check-row"><input type="checkbox" checked={detailDraft.emailVerified} onChange={(e) => setDetailDraft((d) => ({ ...d, emailVerified: e.target.checked }))} /> Email verified</label>
+                            <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                              <button type="button" className="btn btn--primary btn--sm" disabled={savingUserId === u.id} onClick={() => { void handleSaveUserDetails(u); }}>
                                 {savingUserId === u.id ? 'Saving…' : 'Save'}
                               </button>
                               <button type="button" className="btn btn--ghost btn--sm" disabled={savingUserId === u.id} onClick={() => setEditingDetails(null)}>Cancel</button>
                             </div>
+                            {/* TEMPORARY live diagnostic — remove once confirmed fixed. */}
+                            <div className="field__hint" style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                              DEBUG · clicked:{saveDebug.clicked ? 'yes' : 'no'} · payloadEmail:{saveDebug.email || '-'} · started:{saveDebug.started ? 'yes' : 'no'} · finished:{saveDebug.finished || '-'} · status:{saveDebug.status ?? '-'}{saveDebug.error ? ` · err:${saveDebug.error}` : ''}
+                            </div>
                           </div>
-                        ) : (
-                          <>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</>
-                        )}
-                      </td>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={u.id} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
+                      <td>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}</td>
+                      <td>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</td>
                       {/* User type / identity (with the full system-roles editor when editing). */}
                       <td>
                         {editingRoles === u.id ? (
@@ -284,7 +299,7 @@ export function AdminUsers() {
                               of lifecycle status (a super-admin may still administer a
                               suspended account); only super-admin-locked rows hide them. */}
                           {!locked && editingDetails !== u.id && (
-                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); }}>Edit</button>
+                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); setSaveDebug({ clicked: false, email: '', started: false, finished: '', status: null, error: null }); }}>Edit</button>
                           )}
                           {canManageRoles && (
                             <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>System roles</button>

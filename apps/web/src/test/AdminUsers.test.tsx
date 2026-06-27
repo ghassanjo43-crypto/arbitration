@@ -281,7 +281,8 @@ describe('AdminUsers — edit/save UX', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     fireEvent.change(within(row).getByDisplayValue('active@x.test'), { target: { value: 'dupe@x.test' } });
     fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+    // Error surfaced in the alert (scope to role: the temporary debug line also echoes it).
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i);
     // Still editing: Save/Cancel remain and the unsaved input is preserved.
     expect(within(row).getByRole('button', { name: 'Save' })).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
