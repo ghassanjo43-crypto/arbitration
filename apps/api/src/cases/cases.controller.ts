@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CasesService } from './cases.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/types';
-import { CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto } from './dto';
+import { AddCaseNoteDto, CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto, UpdateCaseAdminDto } from './dto';
 
 @ApiTags('cases')
 @ApiBearerAuth()
@@ -43,6 +43,22 @@ export class CasesController {
   @Post(':id/deliberations')
   addDeliberation(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DeliberationNoteDto) {
     return this.cases.addDeliberation(user, id, dto);
+  }
+
+  // Registrar/administrative editing of non-merits case information + notes.
+  @Patch(':id/admin')
+  updateAdmin(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateCaseAdminDto) {
+    return this.cases.updateAdminInfo(user, id, dto);
+  }
+
+  @Get(':id/admin-notes')
+  listAdminNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cases.listAdminNotes(user, id);
+  }
+
+  @Post(':id/admin-notes')
+  addAdminNote(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddCaseNoteDto) {
+    return this.cases.addAdminNote(user, id, dto);
   }
 
   @Get(':id/procedural-orders')

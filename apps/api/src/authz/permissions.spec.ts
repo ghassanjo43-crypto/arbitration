@@ -70,4 +70,36 @@ describe('Role/permission matrix invariants', () => {
     expect(su).not.toContain(Permission.CASE_REGISTER);
     expect(su).not.toContain(Permission.CASE_MANAGE_SERVICE);
   });
+
+  // ---- Registrar boundary: administers the arbitration, never decides it ----
+
+  it('gives the registrar the operational case-administration permissions', () => {
+    const reg = ROLE_PERMISSIONS[Role.REGISTRAR];
+    for (const p of [
+      Permission.CASE_VIEW_QUEUE,
+      Permission.CASE_REGISTER,
+      Permission.CASE_ISSUE_DEFICIENCY,
+      Permission.CASE_MANAGE_SERVICE,
+      Permission.CASE_MANAGE_DEADLINES,
+      Permission.CASE_SCHEDULE_HEARING,
+      Permission.APPOINTMENT_MANAGE,
+      Permission.CONFLICT_REVIEW,
+    ]) {
+      expect(reg).toContain(p);
+    }
+  });
+
+  it('never lets the registrar decide merits, read deliberations, or administer the platform', () => {
+    const reg = ROLE_PERMISSIONS[Role.REGISTRAR];
+    // Deciding arbitrator challenges belongs to the Council, not the registrar.
+    expect(reg).not.toContain(Permission.CHALLENGE_DECIDE);
+    // Deliberation is never a global permission for anyone.
+    expect(reg).not.toContain(Permission.DELIBERATION_PARTICIPATE);
+    // No platform/governance powers.
+    expect(reg).not.toContain(Permission.SETTINGS_MANAGE);
+    expect(reg).not.toContain(Permission.USER_MANAGE);
+    expect(reg).not.toContain(Permission.ROLE_MANAGE);
+    expect(reg).not.toContain(Permission.POLICY_MANAGE);
+    expect(reg).not.toContain(Permission.AUDIT_VIEW);
+  });
 });

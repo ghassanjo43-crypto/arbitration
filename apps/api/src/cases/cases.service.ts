@@ -1,11 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { CaseRole, CaseStage, PartySide } from '@gaap/shared';
+import { CaseRole, CaseStage, PartySide, Permission, Role } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser } from '../auth/types';
-import { CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto } from './dto';
+import { AddCaseNoteDto, CreateCaseDraftDto, DeliberationNoteDto, ProceduralOrderDto, SubmitCaseDto, UpdateCaseAdminDto } from './dto';
 
 @Injectable()
 export class CasesService {
@@ -186,5 +186,82 @@ export class CasesService {
       link: `/app/cases/${caseId}`, partyOnly: true,
     });
     return order;
+  }
+
+  // ---- Registrar administration (non-merits) -------------------------------
+
+  /**
+   * Administrative reach: registrars/admins (CASE_VIEW_QUEUE) and super-admins.
+   * This is the SAME boundary the case-access layer uses — it grants the right to
+   * administer the case, never to read deliberations or decide the merits.
+   */
+  private assertCanAdminister(user: AuthUser) {
+    const ok = user.permissions.includes(Permission.CASE_VIEW_QUEUE) || user.roles.includes(Role.SUPER_ADMIN);
+    if (!ok) throw new ForbiddenException('Only registry/administrative staff may administer case information.');
+  }
+
+  /**
+   * Edit a case's administrative (non-merits) fields. The registrar may correct
+   * logistics — title, seat, governing law, language, panel size, appointment
+   * mechanism, sensitivity — but nothing here touches the substance of the
+   * dispute, the tribunal's reasoning, or any award. Every change is audited.
+   */
+  async updateAdminInfo(user: AuthUser, caseId: string, dto: UpdateCaseAdminDto) {
+    await this.access.assertCanAccessCase(user, caseId);
+    this.assertCanAdminister(user);
+
+    const data: Record<string, unknown> = {};
+    for (const key of ['title', 'category', 'industry', 'seat', 'governingLaw', 'language', 'numberOfArbitrators', 'appointmentMechanism', 'confidentialitySensitivity'] as const) {
+      if (dto[key] !== undefined) data[key] = dto[key];
+    }
+    if (Object.keys(data).length === 0) throw new BadRequestException('No administrative fields to update.');
+
+    const updated = await this.prisma.case.update({
+      where: { id: caseId },
+      data,
+      select: {
+        id: true, reference: true, title: true, stage: true, category: true, industry: true,
+        seat: true, governingLaw: true, language: true, numberOfArbitrators: true,
+        appointmentMechanism: true, confidentialitySensitivity: true,
+      },
+    });
+    await this.audit.record({
+      userId: user.id, action: 'CASE_ADMIN_UPDATED', entityType: 'Case', entityId: caseId, caseId,
+      metadata: { fields: Object.keys(data), by: user.email },
+    });
+    return updated;
+  }
+
+  /**
+   * Add an administrative note to the case. Notes are stored on the append-only
+   * audit trail (action CASE_ADMIN_NOTE), so they are inherently logged and cannot
+   * be silently edited or removed. Distinct from tribunal deliberations.
+   */
+  async addAdminNote(user: AuthUser, caseId: string, dto: AddCaseNoteDto) {
+    await this.access.assertCanAccessCase(user, caseId);
+    this.assertCanAdminister(user);
+    const note = dto.note.trim();
+    if (!note) throw new BadRequestException('Note cannot be empty.');
+    await this.audit.record({
+      userId: user.id, action: 'CASE_ADMIN_NOTE', entityType: 'Case', entityId: caseId, caseId,
+      metadata: { note, author: user.email },
+    });
+    return { ok: true };
+  }
+
+  /** List the administrative notes recorded for a case (from the audit trail). */
+  async listAdminNotes(user: AuthUser, caseId: string) {
+    await this.access.assertCanAccessCase(user, caseId);
+    this.assertCanAdminister(user);
+    const rows = await this.prisma.auditLog.findMany({
+      where: { caseId, action: 'CASE_ADMIN_NOTE' },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return rows.map((r) => {
+      let note = ''; let author = '';
+      try { const m = JSON.parse(r.metadata ?? '{}'); note = m.note ?? ''; author = m.author ?? ''; } catch { /* ignore */ }
+      return { id: r.id, note, author, at: r.createdAt };
+    });
   }
 }

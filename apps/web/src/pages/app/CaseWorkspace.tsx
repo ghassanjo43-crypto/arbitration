@@ -14,6 +14,7 @@ import { AwardsTab } from './case/AwardsTab';
 import { DeliberationsTab } from './case/DeliberationsTab';
 import { RulesProcedureTab } from './case/RulesProcedureTab';
 import { ProceduralTimelineTab } from './case/ProceduralTimelineTab';
+import { CaseAdminTab } from './case/CaseAdminTab';
 
 interface CaseDetail {
   id: string;
@@ -23,13 +24,17 @@ interface CaseDetail {
   seat?: string;
   governingLaw?: string;
   language: string;
+  category?: string;
+  industry?: string;
+  numberOfArbitrators?: number;
+  appointmentMechanism?: string;
   parties: { id: string; side: string; legalName: string }[];
   statusHistory: { id: string; toStage: string; createdAt: string }[];
   tribunal?: { members: { id: string; role: string }[] } | null;
   _membership: { isTribunal: boolean; isRegistrar?: boolean; caseRoles: string[] };
 }
 
-type TabKey = 'overview' | 'timeline' | 'tribunal' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'delivery' | 'deliberations';
+type TabKey = 'overview' | 'timeline' | 'tribunal' | 'rules' | 'documents' | 'messages' | 'calendar' | 'finance' | 'awards' | 'delivery' | 'deliberations' | 'admin';
 
 const PARTY_ROLES = ['CLAIMANT', 'CLAIMANT_REPRESENTATIVE', 'RESPONDENT', 'RESPONDENT_REPRESENTATIVE'];
 
@@ -66,6 +71,8 @@ export function CaseWorkspace() {
     // Delivery evidence is a registry/tribunal view (shows recipient addresses).
     ...(isTribunal || isRegistry ? [{ key: 'delivery' as TabKey, label: t('case.tab.delivery') }] : []),
     ...(isTribunal ? [{ key: 'deliberations' as TabKey, label: t('case.tab.deliberations') }] : []),
+    // Registrar/registry administration (edit admin info, status, notes).
+    ...(isRegistry ? [{ key: 'admin' as TabKey, label: t('case.tab.administration') }] : []),
   ];
 
   return (
@@ -127,6 +134,7 @@ export function CaseWorkspace() {
           {tab === 'awards' && <AwardsTab caseId={data.id} isTribunal={isTribunal} />}
           {tab === 'delivery' && (isTribunal || isRegistry) && <DeliveryTab caseId={data.id} />}
           {tab === 'deliberations' && isTribunal && <DeliberationsTab caseId={data.id} />}
+          {tab === 'admin' && isRegistry && <CaseAdminTab caseData={data} goTab={setTab} />}
         </div>
       </div>
     </div>

@@ -59,6 +59,27 @@ export class DeliberationNoteDto {
   @IsString() body!: string;
 }
 
+/**
+ * Registrar/administrative edit of a case's NON-MERITS administrative fields.
+ * Deliberately excludes anything touching the substance of the dispute or the
+ * tribunal — only logistical/administrative metadata can be corrected here.
+ */
+export class UpdateCaseAdminDto {
+  @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() industry?: string;
+  @IsOptional() @IsString() seat?: string;
+  @IsOptional() @IsString() governingLaw?: string;
+  @IsOptional() @IsString() language?: string;
+  @IsOptional() @IsNumber() @Min(1) numberOfArbitrators?: number;
+  @IsOptional() @IsString() appointmentMechanism?: string;
+  @IsOptional() @IsString() confidentialitySensitivity?: string;
+}
+
+export class AddCaseNoteDto {
+  @IsString() note!: string;
+}
+
 export class ProceduralOrderDto {
   @IsString() title!: string;
   @IsString() body!: string;
