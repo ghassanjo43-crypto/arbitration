@@ -118,13 +118,59 @@ describe('AdminUsers — action state by lifecycle status', () => {
     // Identity cell (index 2); "Individual" also appears as a <select> option, so
     // assert against the cell's text rather than a unique element.
     expect(active.querySelectorAll('td')[2]).toHaveTextContent('Individual');
-    // Status badge is now in the 5th cell (Email, Name, Identity, Case role(s), Status).
-    const statusCell = active.querySelectorAll('td')[4] as HTMLElement;
+    // Columns: Email, Name, Identity, Case role(s), Linked records, Status, Actions.
+    const statusCell = active.querySelectorAll('td')[5] as HTMLElement;
     expect(statusCell).toHaveTextContent('ACTIVE');
     const lawyer = await rowFor('unverified@x.test');
     expect(lawyer.querySelectorAll('td')[2]).toHaveTextContent('Law firm / Representative');
     const suspended = await rowFor('suspended@x.test');
     expect(within(suspended).getByText('SUSPENDED')).toBeInTheDocument();
+  });
+});
+
+describe('AdminUsers — delete-eligibility clarity', () => {
+  it('shows a "Delete eligible" badge for an unlinked user and "Linked — archive only (N)" for a linked one', async () => {
+    renderPage();
+    const eligible = await rowFor('active@x.test');
+    expect(within(eligible).getByText('Delete eligible')).toBeInTheDocument();
+    const linked = await rowFor('unverified@x.test');
+    expect(within(linked).getByText(/Linked — archive only \(4\)/)).toBeInTheDocument();
+  });
+
+  it('shows the helper text about permanent delete vs archive', async () => {
+    renderPage();
+    expect(await screen.findByText(/Permanent delete is available only for unused accounts/i)).toBeInTheDocument();
+  });
+
+  it('filters to delete-eligible users only', async () => {
+    renderPage();
+    await screen.findByText('active@x.test');
+    fireEvent.change(screen.getByLabelText('Filter users'), { target: { value: 'eligible' } });
+    // u1 + u5 are unlinked & not archived; u5 has a stray deletedAt so excluded by archived check? No: eligible = count 0 AND !deletedAt → u5 has deletedAt → excluded. Only u1.
+    expect(screen.getByText('active@x.test')).toBeInTheDocument();
+    expect(screen.queryByText('unverified@x.test')).not.toBeInTheDocument(); // linked
+    expect(screen.queryByText('suspended@x.test')).not.toBeInTheDocument(); // linked
+  });
+
+  it('filters to linked users only', async () => {
+    renderPage();
+    await screen.findByText('active@x.test');
+    fireEvent.change(screen.getByLabelText('Filter users'), { target: { value: 'linked' } });
+    expect(screen.getByText('unverified@x.test')).toBeInTheDocument();
+    expect(screen.queryByText('active@x.test')).not.toBeInTheDocument(); // unlinked
+  });
+
+  it('shows the blocker breakdown on demand via delete-check', async () => {
+    get.mockImplementation((url: string) => {
+      if (url.includes('/delete-check')) return Promise.resolve({ data: { id: 'u2', blockers: { 'Cases filed': 2, 'Audit logs': 15 } } });
+      return Promise.resolve({ data: { data: users, total: users.length } });
+    });
+    renderPage();
+    const linked = await rowFor('unverified@x.test');
+    fireEvent.click(within(linked).getByRole('button', { name: 'Why?' }));
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/admin/users/u2/delete-check'));
+    expect(await within(linked).findByText('Audit logs: 15')).toBeInTheDocument();
+    expect(within(linked).getByText('Cases filed: 2')).toBeInTheDocument();
   });
 });
 

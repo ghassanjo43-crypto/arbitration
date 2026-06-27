@@ -59,10 +59,8 @@ export function AdminUsers() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
-  // TEMPORARY diagnostic for the live save path — remove once confirmed fixed.
-  const [saveDebug, setSaveDebug] = useState<{ clicked: boolean; email: string; started: boolean; finished: '' | 'success' | 'error'; status: number | null; error: string | null }>(
-    { clicked: false, email: '', started: false, finished: '', status: null, error: null },
-  );
+  const [linkFilter, setLinkFilter] = useState<'all' | 'eligible' | 'linked' | 'archived'>('all');
+  const [blockersFor, setBlockersFor] = useState<{ id: string; blockers: Record<string, number> } | null>(null);
 
   const { data, isLoading } = useQuery<{ data: AdminUser[]; total: number }>({
     queryKey: ['admin-users', search],
@@ -89,6 +87,12 @@ export function AdminUsers() {
     onSuccess: () => { setNotice('User permanently deleted'); setError(null); invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
     onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
   });
+  // On-demand "why is this account not deletable?" — fetches the blocker breakdown.
+  const checkLinks = useMutation({
+    mutationFn: (id: string) => api.get(`/admin/users/${id}/delete-check`).then((r) => r.data as { id: string; blockers: Record<string, number> }),
+    onSuccess: (d) => { setBlockersFor({ id: d.id, blockers: d.blockers }); setError(null); },
+    onError: (e: unknown) => { setError(apiError(e)); },
+  });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
@@ -102,13 +106,11 @@ export function AdminUsers() {
   // submit. Local savingUserId drives the button so "Saving…" appears the instant
   // it is clicked; success/failure are handled inline in this one function.
   async function handleSaveUserDetails(u: AdminUser) {
-    setSaveDebug({ clicked: true, email: detailDraft.email, started: false, finished: '', status: null, error: null });
     setSavingUserId(u.id);
     setError(null);
     setNotice(null);
     const nextEmail = detailDraft.email.trim().toLowerCase();
     try {
-      setSaveDebug((d) => ({ ...d, started: true }));
       // Admin user update endpoint (supports email changes). Sends the edited email.
       const res = await api.patch(`/admin/users/${u.id}`, {
         firstName: detailDraft.firstName,
@@ -117,7 +119,6 @@ export function AdminUsers() {
         emailVerified: detailDraft.emailVerified,
       });
       const updated = res?.data;
-      setSaveDebug((d) => ({ ...d, finished: 'success', status: res?.status ?? 200 }));
       // Deterministically reflect the saved row immediately (then reconcile via refetch).
       qc.setQueryData(['admin-users', search], (old: { data: AdminUser[]; total: number } | undefined) =>
         old
@@ -131,8 +132,6 @@ export function AdminUsers() {
       invalidate();
       void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
     } catch (err) {
-      const status = (err as { response?: { status?: number } })?.response?.status ?? null;
-      setSaveDebug((d) => ({ ...d, finished: 'error', status, error: apiError(err) }));
       setError(apiError(err)); // keep edit mode open; input preserved
     } finally {
       setSavingUserId(null);
@@ -172,6 +171,10 @@ export function AdminUsers() {
           Users are classified by their <strong>legal identity</strong> and by their <strong>role in each arbitration case</strong>.
           Claimant and Respondent are case roles, not generic website roles.
         </div>
+        <div className="alert alert--legal" role="note">
+          <strong>Permanent delete is available only for unused accounts with no linked platform records.</strong> Linked
+          accounts can only be <strong>archived</strong> to preserve case history, audit logs, awards and arbitrator records.
+        </div>
 
         {notice && <div className="alert alert--success" role="status" onClick={() => setNotice(null)}>{notice}</div>}
         {error && <div className="alert alert--danger" role="alert" onClick={() => setError(null)}>{error}</div>}
@@ -181,6 +184,15 @@ export function AdminUsers() {
             <input className="input" placeholder="Search by email or name" value={q} onChange={(e) => setQ(e.target.value)} />
             <button className="btn btn--primary" type="submit">Search</button>
           </form>
+          <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+            <span className="field__hint">Show</span>
+            <select className="select" style={{ width: 'auto' }} aria-label="Filter users" value={linkFilter} onChange={(e) => setLinkFilter(e.target.value as typeof linkFilter)}>
+              <option value="all">All users</option>
+              <option value="eligible">Delete-eligible (unlinked)</option>
+              <option value="linked">Linked (archive only)</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
           <button className="btn btn--secondary" onClick={() => { setShowCreate((s) => !s); setError(null); }}>{showCreate ? 'Close' : 'Create user'}</button>
         </div>
 
@@ -212,14 +224,24 @@ export function AdminUsers() {
           </section>
         )}
 
-        {isLoading ? <p className="muted" style={{ marginTop: 'var(--sp-3)' }}>Loading…</p> : (
+        {isLoading ? <p className="muted" style={{ marginTop: 'var(--sp-3)' }}>Loading…</p> : (() => {
+          const rows = (data?.data ?? []).filter((u) => {
+            if (linkFilter === 'eligible') return u.linkedRecordCount === 0 && !u.deletedAt;
+            if (linkFilter === 'linked') return (u.linkedRecordCount ?? 1) > 0;
+            if (linkFilter === 'archived') return !!u.deletedAt;
+            return true;
+          });
+          if (linkFilter === 'eligible' && rows.length === 0) {
+            return <p className="muted" style={{ marginTop: 'var(--sp-3)' }}>No users are currently eligible for permanent deletion.</p>;
+          }
+          return (
           <div className="card admin-users" style={{ padding: 0, overflow: 'hidden', marginTop: 'var(--sp-3)' }}>
             <table className="table">
               <thead>
-                <tr><th>Email</th><th>Name</th><th>User type / identity</th><th>Case role(s)</th><th>Status</th><th>Actions</th></tr>
+                <tr><th>Email</th><th>Name</th><th>User type / identity</th><th>Case role(s)</th><th>Linked records</th><th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                {data?.data.map((u) => {
+                {rows.map((u) => {
                   const isSelf = u.id === user?.id;
                   const isSuper = u.roles.includes(Role.SUPER_ADMIN);
                   const locked = isSuper && !canManageRoles; // a plain admin cannot touch a super-admin
@@ -239,7 +261,7 @@ export function AdminUsers() {
                   if (editingDetails === u.id) {
                     return (
                       <tr key={u.id}>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <div className="user-edit-form" style={{ display: 'grid', gap: 'var(--sp-2)', maxWidth: 560, padding: 'var(--sp-2)' }}>
                             <strong>Editing {u.email}</strong>
                             <label className="field"><span className="field__label">Login email</span>
@@ -257,10 +279,6 @@ export function AdminUsers() {
                                 {savingUserId === u.id ? 'Saving…' : 'Save'}
                               </button>
                               <button type="button" className="btn btn--ghost btn--sm" disabled={savingUserId === u.id} onClick={() => setEditingDetails(null)}>Cancel</button>
-                            </div>
-                            {/* TEMPORARY live diagnostic — remove once confirmed fixed. */}
-                            <div className="field__hint" style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                              DEBUG · clicked:{saveDebug.clicked ? 'yes' : 'no'} · payloadEmail:{saveDebug.email || '-'} · started:{saveDebug.started ? 'yes' : 'no'} · finished:{saveDebug.finished || '-'} · status:{saveDebug.status ?? '-'}{saveDebug.error ? ` · err:${saveDebug.error}` : ''}
                             </div>
                           </div>
                         </td>
@@ -311,6 +329,22 @@ export function AdminUsers() {
                             : '—';
                         })()}
                       </td>
+                      {/* Linked records — drives delete eligibility. */}
+                      <td>
+                        {u.linkedRecordCount === 0 ? (
+                          <span className="badge badge--success">Delete eligible</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                            <span className="badge badge--warning">Linked — archive only{u.linkedRecordCount != null ? ` (${u.linkedRecordCount})` : ''}</span>
+                            <button className="btn btn--ghost btn--sm" disabled={checkLinks.isPending} onClick={() => checkLinks.mutate(u.id)}>Why?</button>
+                            {blockersFor?.id === u.id && (
+                              <div className="field__hint" style={{ fontSize: 12 }}>
+                                {Object.entries(blockersFor.blockers).map(([k, v]) => <div key={k}>{k}: {v}</div>)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td><span className={`badge ${u.status === 'ACTIVE' ? 'badge--success' : u.status === 'SUSPENDED' ? 'badge--warning' : ''}`}>{u.status.replaceAll('_', ' ')}</span></td>
                       <td>
                         <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -318,7 +352,7 @@ export function AdminUsers() {
                               of lifecycle status (a super-admin may still administer a
                               suspended account); only super-admin-locked rows hide them. */}
                           {!locked && editingDetails !== u.id && (
-                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); setSaveDebug({ clicked: false, email: '', started: false, finished: '', status: null, error: null }); }}>Edit</button>
+                            <button className="btn btn--ghost btn--sm" onClick={() => { setEditingDetails(u.id); setDetailDraft({ firstName: u.firstName ?? '', lastName: u.lastName ?? '', email: u.email, emailVerified: u.emailVerified }); }}>Edit</button>
                           )}
                           {canManageRoles && (
                             <button className="btn btn--ghost btn--sm" onClick={() => { setEditingRoles(u.id); setRoleDraft(u.roles); }}>System roles</button>
@@ -372,7 +406,8 @@ export function AdminUsers() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
