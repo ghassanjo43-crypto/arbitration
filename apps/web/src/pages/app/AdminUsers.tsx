@@ -81,11 +81,22 @@ export function AdminUsers() {
     mutationFn: ({ id, identityType }: { id: string; identityType: string }) => api.patch(`/admin/users/${id}/identity`, { identityType }),
     onSuccess: () => { invalidate(); void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] }); },
   });
-  // State reset is handled in per-call callbacks (see the Save button) so that
-  // success deterministically closes the row and failure keeps it open.
+  // Use useMutation OPTION callbacks (not per-call mutate callbacks): option
+  // callbacks fire reliably regardless of re-render/mount timing, so success
+  // deterministically closes the row. Only one row edits at a time, so clearing
+  // editingDetails/editingRoles unconditionally is correct.
   const saveDetails = useMutation({
     mutationFn: ({ id, ...body }: { id: string; firstName: string; lastName: string; email: string; emailVerified: boolean }) =>
       api.patch(`/admin/users/${id}`, body),
+    onSuccess: () => {
+      setEditingDetails(null);
+      setEditingRoles(null);
+      setNotice('User updated');
+      setError(null);
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
+    },
+    onError: (e: unknown) => { setError(apiError(e)); setNotice(null); }, // keep edit mode open
   });
   const createUser = useMutation({
     mutationFn: (body: { email: string; firstName: string; lastName: string; roles: string[] }) =>
@@ -197,23 +208,11 @@ export function AdminUsers() {
                               <p className="field__hint" style={{ color: 'var(--c-warning)' }}>⚠ Changing this email changes the user’s login address.</p>
                             )}
                             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                              <button className="btn btn--primary btn--sm" disabled={saveDetails.isPending} onClick={() => {
-                                saveDetails.mutate({ id: u.id, ...detailDraft }, {
-                                  onSuccess: () => {
-                                    // Deterministically clear ALL edit state for the row, surface
-                                    // success, and refresh the user + arbitrator lists.
-                                    setEditingDetails(null);
-                                    setEditingRoles(null);
-                                    setNotice('User updated');
-                                    setError(null);
-                                    invalidate();
-                                    void qc.invalidateQueries({ queryKey: ['admin-arbitrators'] });
-                                  },
-                                  // Keep edit mode open and preserve unsaved input on failure.
-                                  onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
-                                });
-                              }}>{saveDetails.isPending ? 'Saving…' : 'Save'}</button>
-                              <button className="btn btn--ghost btn--sm" disabled={saveDetails.isPending} onClick={() => setEditingDetails(null)}>Cancel</button>
+                              <button type="button" className="btn btn--primary btn--sm" disabled={saveDetails.isPending}
+                                onClick={() => saveDetails.mutate({ id: u.id, ...detailDraft })}>
+                                {saveDetails.isPending ? 'Saving…' : 'Save'}
+                              </button>
+                              <button type="button" className="btn btn--ghost btn--sm" disabled={saveDetails.isPending} onClick={() => setEditingDetails(null)}>Cancel</button>
                             </div>
                           </div>
                         ) : (
