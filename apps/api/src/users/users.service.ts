@@ -40,7 +40,9 @@ export class UsersService {
           profile: true, roles: true,
           caseTeamMembers: { where: { active: true }, select: { caseRole: true } },
           individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
-          _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+          // Audit logs only count as a link when they record CASE activity (caseId
+          // present). Bare admin/system audit logs do not block deletion.
+          _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: { where: { caseId: { not: null } } }, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: pageSize,
@@ -58,7 +60,7 @@ export class UsersService {
         profile: true, roles: true,
         caseTeamMembers: { where: { active: true }, select: { caseRole: true } },
         individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
-        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: { where: { caseId: { not: null } } }, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
       },
     });
     if (!u) throw new NotFoundException('User not found.');
@@ -317,7 +319,7 @@ export class UsersService {
       where: { id },
       include: {
         individual: { select: { id: true } }, lawyer: { select: { id: true } }, arbitrator: { select: { id: true } },
-        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, auditLogs: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
+        _count: { select: { caseTeamMembers: true, documentsUploaded: true, documentActivity: true, messagesSent: true, supportTickets: true, identityChecks: true, ruleAcceptances: true, companyMembers: true } },
       },
     });
     if (!u) throw new NotFoundException('User not found.');
@@ -328,7 +330,6 @@ export class UsersService {
     add('Case memberships', c.caseTeamMembers);
     add('Documents', c.documentsUploaded + c.documentActivity);
     add('Messages', c.messagesSent);
-    add('Audit logs', c.auditLogs);
     add('Support tickets', c.supportTickets);
     add('Identity checks', c.identityChecks);
     add('Rule acceptances', c.ruleAcceptances);
@@ -336,6 +337,11 @@ export class UsersService {
     if (u.individual) add('Individual profile', 1);
     if (u.lawyer) add('Lawyer profile', 1);
     if (u.arbitrator) add('Arbitrator profile', 1);
+
+    // Audit logs are system history and are PRESERVED on delete (FK is SetNull).
+    // They only block when tied to real arbitration activity (a caseId); bare
+    // admin/system audit logs (logins, user-management, etc.) do not block.
+    add('Case activity (audit)', await this.prisma.auditLog.count({ where: { userId: id, caseId: { not: null } } }));
 
     // Indirect links.
     add('Cases filed', await this.prisma.case.count({ where: { filedById: id } }));

@@ -8,7 +8,7 @@ import { AuthUser } from '../auth/types';
 type Links = {
   count?: Partial<Record<'caseTeamMembers' | 'documentsUploaded' | 'documentActivity' | 'messagesSent' | 'auditLogs' | 'supportTickets' | 'identityChecks' | 'ruleAcceptances' | 'companyMembers', number>>;
   individual?: boolean; lawyer?: boolean; arbitrator?: boolean;
-  casesFiled?: number; appointments?: number; disclosures?: number; legalHolds?: number;
+  casesFiled?: number; appointments?: number; disclosures?: number; legalHolds?: number; caseAudit?: number;
 };
 type TargetSpec = { id?: string; roles: string[]; status?: string; email?: string; emailVerified?: boolean; links?: Links };
 
@@ -52,6 +52,7 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
       ),
     },
     case: { count: jest.fn().mockResolvedValue(target?.links?.casesFiled ?? 0) },
+    auditLog: { count: jest.fn().mockResolvedValue(target?.links?.caseAudit ?? 0) },
     appointmentInvitation: { count: jest.fn().mockResolvedValue(target?.links?.appointments ?? 0) },
     conflictDisclosure: { count: jest.fn().mockResolvedValue(target?.links?.disclosures ?? 0) },
     legalHold: { count: jest.fn().mockResolvedValue(target?.links?.legalHolds ?? 0) },
@@ -184,9 +185,19 @@ describe('UsersService — deletion safety (only unlinked accounts)', () => {
     await expect(service.hardDelete(superAdmin, 'target-id')).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('blocks hard delete when linked to audit logs', async () => {
-    const { service } = makeService({ roles: [Role.INDIVIDUAL], links: { count: { auditLogs: 15 } } });
+  it('blocks hard delete when linked to CASE-connected audit activity', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL], links: { caseAudit: 15 } });
     await expect(service.hardDelete(superAdmin, 'target-id')).rejects.toBeInstanceOf(ConflictException);
+    // Only case-connected audit logs are counted (caseId present).
+    expect(prisma.auditLog.count).toHaveBeenCalledWith({ where: { userId: 'target-id', caseId: { not: null } } });
+  });
+
+  it('ALLOWS permanent delete when the only history is non-case admin audit logs', async () => {
+    // caseAudit defaults to 0 → bare admin/system audit logs do not block.
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    const res = await service.hardDelete(superAdmin, 'target-id');
+    expect(res).toMatchObject({ deleted: true });
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'target-id' } });
   });
 
   it('deleteCheck reports blocking counts and audits the check', async () => {
