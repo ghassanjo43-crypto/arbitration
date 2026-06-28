@@ -58,7 +58,7 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
     legalHold: { count: jest.fn().mockResolvedValue(target?.links?.legalHolds ?? 0) },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userRole: { count: jest.fn().mockResolvedValue(superAdminCount), deleteMany: jest.fn(), createMany: jest.fn() },
-    emailDelivery: { findMany: jest.fn().mockResolvedValue([]) },
+    emailDelivery: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(null), delete: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn().mockResolvedValue([]),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
@@ -302,6 +302,22 @@ describe('UsersService — account-notification emails', () => {
     const { service, auth } = makeService({ roles: [Role.INDIVIDUAL] });
     await service.sendPasswordSetupEmail(admin, 'target-id');
     expect(auth.requestPasswordReset).toHaveBeenCalledWith('target@example.test');
+  });
+
+  it('dismisses (deletes) a user-account email delivery and audits it', async () => {
+    const { service, prisma, audit } = makeService({ roles: [Role.INDIVIDUAL] });
+    prisma.emailDelivery.findUnique.mockResolvedValue({ id: 'del-1', toEmail: 'target@example.test', templateKey: 'user.enrollment', caseId: null, noticeId: null, noticeRecipientId: null, noticeType: null });
+    const res = await service.dismissEmailDelivery(admin, 'target-id', 'del-1');
+    expect(res).toEqual({ dismissed: true, deliveryId: 'del-1' });
+    expect(prisma.emailDelivery.delete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'EMAIL_DELIVERY_DELETED', metadata: expect.objectContaining({ relatedUserId: 'target-id', recipient: 'target@example.test' }) }));
+  });
+
+  it('refuses to delete a CASE-SERVICE-EVIDENCE delivery (caseId/noticeId present)', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    prisma.emailDelivery.findUnique.mockResolvedValue({ id: 'del-2', toEmail: 'target@example.test', templateKey: null, caseId: 'c1', noticeId: 'n1', noticeRecipientId: 'nr1', noticeType: 'NOTICE_OF_ARBITRATION' });
+    await expect(service.dismissEmailDelivery(admin, 'target-id', 'del-2')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.emailDelivery.delete).not.toHaveBeenCalled();
   });
 });
 

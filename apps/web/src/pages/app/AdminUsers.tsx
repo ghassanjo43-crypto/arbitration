@@ -113,6 +113,10 @@ export function AdminUsers() {
     mutationFn: (id: string) => api.patch(`/admin/users/${id}`, { emailVerified: true }),
     onSuccess: () => { setNotice('Email marked as verified'); setError(null); invalidate(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
   });
+  const dismissDelivery = useMutation({
+    mutationFn: ({ userId, deliveryId }: { userId: string; deliveryId: string }) => api.delete(`/admin/users/${userId}/email-deliveries/${deliveryId}`),
+    onSuccess: () => { setNotice('Email delivery record removed'); setError(null); refreshEmails(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
+  });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
@@ -433,15 +437,20 @@ export function AdminUsers() {
                             </div>
                             {emailDeliveries.isLoading ? <p className="field__hint">Loading email status…</p> : (
                               <table className="table" style={{ fontSize: 11, marginTop: 4 }}>
-                                <thead><tr><th>Email</th><th>Status</th><th>When / detail</th></tr></thead>
+                                <thead><tr><th>Email</th><th>Status</th><th>When / detail</th><th></th></tr></thead>
                                 <tbody>
                                   {emailDeliveries.data?.length ? emailDeliveries.data.map((d) => (
                                     <tr key={d.id}>
                                       <td>{d.subject}</td>
                                       <td><span className={`badge ${d.status === 'SENT' || d.status === 'DELIVERED' ? 'badge--success' : d.status === 'FAILED' || d.status === 'BOUNCED' ? 'badge--danger' : 'badge--info'}`}>{d.status}</span></td>
                                       <td className="field__hint">{d.failureKind ? d.errorDetail : new Date(d.createdAt).toLocaleString()}</td>
+                                      <td>
+                                        <button className="btn btn--ghost btn--sm" aria-label={`Remove delivery record for ${d.subject}`} style={{ color: 'var(--c-danger)' }} disabled={dismissDelivery.isPending}
+                                          onClick={() => { if (confirm('Remove this email delivery record from the user-management view?')) dismissDelivery.mutate({ userId: u.id, deliveryId: d.id }); }}
+                                        >✕ Remove</button>
+                                      </td>
                                     </tr>
-                                  )) : <tr><td colSpan={3} className="muted">No emails recorded for this address yet.</td></tr>}
+                                  )) : <tr><td colSpan={4} className="muted">No emails recorded for this address yet.</td></tr>}
                                 </tbody>
                               </table>
                             )}

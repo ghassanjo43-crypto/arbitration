@@ -504,6 +504,30 @@ export class UsersService {
     }));
   }
 
+  /**
+   * Remove a USER-ACCOUNT email delivery record from the user-management view.
+   * CASE-SERVICE EVIDENCE (anything tied to a case, formal notice or recipient) is
+   * NEVER deletable — it must be preserved as arbitration evidence. The deletion
+   * itself is recorded on the append-only audit trail, so account-action history
+   * is retained even though the notification-log row is removed.
+   */
+  async dismissEmailDelivery(actor: AuthUser, id: string, deliveryId: string) {
+    const view = await this.get(id);
+    const d = await this.prisma.emailDelivery.findUnique({ where: { id: deliveryId } });
+    if (!d || d.toEmail !== view.email) throw new NotFoundException('Email delivery record not found.');
+
+    if (d.caseId || d.noticeId || d.noticeRecipientId || d.noticeType) {
+      throw new BadRequestException('This delivery record is part of case service evidence and cannot be deleted.');
+    }
+
+    await this.prisma.emailDelivery.delete({ where: { id: deliveryId } }); // events cascade
+    await this.audit.record({
+      userId: actor.id, action: 'EMAIL_DELIVERY_DELETED', entityType: 'EmailDelivery', entityId: deliveryId,
+      metadata: { relatedUserId: id, emailType: d.templateKey, recipient: d.toEmail, by: actor.email, at: new Date().toISOString() },
+    });
+    return { dismissed: true, deliveryId };
+  }
+
   // ---- helpers ----
 
   private async loadTarget(id: string) {

@@ -117,4 +117,12 @@ export class UsersController {
   emailDeliveries(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.users.listEmailDeliveries(actor, id);
   }
+
+  // Remove a user-account email delivery from the user-management view (never
+  // case-service evidence). USER_MANAGE only.
+  @Delete(':id/email-deliveries/:deliveryId')
+  @RequirePermissions(Permission.USER_MANAGE)
+  dismissEmailDelivery(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Param('deliveryId') deliveryId: string) {
+    return this.users.dismissEmailDelivery(actor, id, deliveryId);
+  }
 }

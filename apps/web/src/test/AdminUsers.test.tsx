@@ -201,6 +201,39 @@ describe('AdminUsers — account-notification emails', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u2', { emailVerified: true }));
   });
 
+  it('removes (dismisses) a user-account email delivery row with confirmation', async () => {
+    const store = [{ id: 'd1', subject: 'You have been enrolled on the Arbitration Panel', templateKey: 'user.enrollment', status: 'SENT', failureKind: null, errorDetail: null, sentAt: null, createdAt: '2026-06-28T10:00:00Z' }];
+    get.mockImplementation((url: string) => {
+      if (url.includes('/email-deliveries')) return Promise.resolve({ data: store });
+      return Promise.resolve({ data: { data: users, total: users.length } });
+    });
+    del.mockImplementation((url: string) => { const m = /email-deliveries\/(\w+)$/.exec(url); if (m) store.length = 0; return Promise.resolve({ data: { dismissed: true } }); });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    fireEvent.click(await within(row).findByRole('button', { name: /Remove delivery record/i }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/admin/users/u1/email-deliveries/d1'));
+    // After refresh the row is gone.
+    expect(await within(row).findByText(/No emails recorded/i)).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('shows the evidence-protection error when a case-service delivery cannot be deleted', async () => {
+    get.mockImplementation((url: string) => {
+      if (url.includes('/email-deliveries')) return Promise.resolve({ data: [{ id: 'd9', subject: 'Notice of Arbitration', templateKey: null, status: 'DELIVERED', failureKind: null, errorDetail: null, sentAt: null, createdAt: '2026-06-28T10:00:00Z' }] });
+      return Promise.resolve({ data: { data: users, total: users.length } });
+    });
+    del.mockRejectedValue({ response: { data: { message: 'This delivery record is part of case service evidence and cannot be deleted.' } } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    fireEvent.click(await within(row).findByRole('button', { name: /Remove delivery record/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/part of case service evidence and cannot be deleted/i);
+    confirmSpy.mockRestore();
+  });
+
   it('can send a password-setup email', async () => {
     get.mockImplementation((url: string) => {
       if (url.includes('/email-deliveries')) return Promise.resolve({ data: [] });
