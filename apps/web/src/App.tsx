@@ -9,7 +9,7 @@ import { FeeCalculator } from './pages/FeeCalculator';
 import { FileACase } from './pages/FileACase';
 import { SignIn } from './pages/SignIn';
 import { News, CourtHighlights, Publications } from './pages/content';
-import { Register, ForgotPassword, LawyerRegistration } from './pages/auth-extra';
+import { Register, ForgotPassword, ResetPassword, LawyerRegistration } from './pages/auth-extra';
 import {
   About, HowItWorks, Rules, ModelClause, SubmissionAgreement,
   Faq, Contact, Privacy, Terms, NotFound,
@@ -57,6 +57,7 @@ export default function App() {
           <Route path="register" element={<Register />} />
           <Route path="verify-email" element={<VerifyEmail />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
+          <Route path="reset-password" element={<ResetPassword />} />
 
           <Route path="app" element={<ProtectedRoute />}>
             <Route index element={<Dashboard />} />

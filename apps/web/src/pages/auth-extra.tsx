@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -122,6 +122,82 @@ export function ForgotPassword() {
               <input id="fe" type="email" className="input" {...register('email', { required: true })} />
             </div>
             <button className="btn btn--primary btn--block" type="submit">Send reset link</button>
+          </form>
+        )}
+      </div></div>
+    </>
+  );
+}
+
+const resetSchema = z
+  .object({
+    password: z.string().min(12, 'Use at least 12 characters.'),
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, { message: 'Passwords do not match.', path: ['confirm'] });
+type ResetValues = z.infer<typeof resetSchema>;
+
+function apiMessage(e: unknown): string {
+  const m = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  return Array.isArray(m) ? m.join('; ') : (m ?? 'This reset link is invalid or has expired. Please request a new one.');
+}
+
+/** Password reset page reached from the emailed link: /reset-password?token=… */
+export function ResetPassword() {
+  const [params] = useSearchParams();
+  const token = params.get('token') ?? '';
+  const navigate = useNavigate();
+  const [done, setDone] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ResetValues>({ resolver: zodResolver(resetSchema) });
+
+  const onSubmit = async (v: ResetValues) => {
+    setServerError(null);
+    try {
+      await api.post('/auth/password-reset/confirm', { token, newPassword: v.password });
+      setDone(true);
+      setTimeout(() => navigate('/sign-in'), 2500);
+    } catch (e) {
+      setServerError(apiMessage(e));
+    }
+  };
+
+  if (!token) {
+    return (
+      <>
+        <PageHeader eyebrow="Account" title="Set a new password" />
+        <div className="section"><div className="container auth-narrow">
+          <div className="alert alert--danger" role="alert">
+            This password-reset link is invalid or incomplete. Please request a new one from{' '}
+            <Link to="/forgot-password">Forgot password</Link>.
+          </div>
+        </div></div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader eyebrow="Account" title="Set a new password" />
+      <div className="section"><div className="container auth-narrow">
+        {done ? (
+          <div className="alert" role="status">
+            Your password has been reset. Redirecting to sign in… <Link to="/sign-in">Sign in now</Link>.
+          </div>
+        ) : (
+          <form className="card" onSubmit={handleSubmit(onSubmit)} noValidate>
+            {serverError && <div className="alert alert--danger" role="alert">{serverError}</div>}
+            <div className="field">
+              <label htmlFor="np">New password</label>
+              <input id="np" type="password" className="input" autoComplete="new-password" {...register('password')} />
+              {errors.password && <p className="field__error">{errors.password.message}</p>}
+            </div>
+            <div className="field">
+              <label htmlFor="cp">Confirm new password</label>
+              <input id="cp" type="password" className="input" autoComplete="new-password" {...register('confirm')} />
+              {errors.confirm && <p className="field__error">{errors.confirm.message}</p>}
+            </div>
+            <button className="btn btn--primary btn--block" type="submit" disabled={isSubmitting} style={{ marginTop: 'var(--sp-3)' }}>Reset password</button>
           </form>
         )}
       </div></div>

@@ -112,3 +112,13 @@ describe('AuthService.register', () => {
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 });
+
+describe('AuthService.requestPasswordReset', () => {
+  it('emails a reset link that points at the frontend /reset-password route', async () => {
+    const { service, email } = setup({ existingUser: { id: 'u1', email: 'user@example.com', emailVerified: true, status: 'ACTIVE', deletedAt: null } });
+    await service.requestPasswordReset('user@example.com');
+    expect(email.send).toHaveBeenCalledTimes(1);
+    const msg = email.send.mock.calls[0][0];
+    expect(msg.text).toContain('http://localhost:5173/reset-password?token=');
+  });
+});
