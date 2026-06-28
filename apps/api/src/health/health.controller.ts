@@ -60,6 +60,11 @@ export class HealthController {
         bootstrapDemo: process.env.BOOTSTRAP_DEMO ?? null,
         demoPasswordPresent: Boolean(process.env.DEMO_PASSWORD),
         passwordPepperPresent: Boolean(process.env.PASSWORD_PEPPER),
+        // Email delivery: 'console' = emails only go to server logs (NOT delivered).
+        // Set EMAIL_DRIVER=resend + RESEND_API_KEY + EMAIL_FROM for real delivery.
+        emailDriver: process.env.EMAIL_DRIVER ?? 'console',
+        resendApiKeyPresent: Boolean(process.env.RESEND_API_KEY),
+        emailFrom: process.env.EMAIL_FROM ?? null,
       },
       // The bootstrap controller's registration is confirmed by the existence of
       // the route below — hit it to verify AdminModule loaded.

@@ -98,4 +98,23 @@ export class UsersController {
   resetPassword(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ResetPasswordDto) {
     return this.users.resetPassword(actor, id, dto);
   }
+
+  // ---- Account-notification emails ----
+  @Post(':id/send-enrollment')
+  @RequirePermissions(Permission.USER_MANAGE)
+  sendEnrollment(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.sendEnrollmentEmail(actor, id);
+  }
+
+  @Post(':id/send-password-setup')
+  @RequirePermissions(Permission.USER_MANAGE)
+  sendPasswordSetup(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.sendPasswordSetupEmail(actor, id);
+  }
+
+  @Get(':id/email-deliveries')
+  @RequirePermissions(Permission.USER_MANAGE)
+  emailDeliveries(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.users.listEmailDeliveries(actor, id);
+  }
 }

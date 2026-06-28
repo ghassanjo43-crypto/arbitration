@@ -58,13 +58,16 @@ function makeService(target?: TargetSpec, superAdminCount = 2) {
     legalHold: { count: jest.fn().mockResolvedValue(target?.links?.legalHolds ?? 0) },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userRole: { count: jest.fn().mockResolvedValue(superAdminCount), deleteMany: jest.fn(), createMany: jest.fn() },
+    emailDelivery: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn().mockResolvedValue([]),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const passwords = { hash: jest.fn().mockResolvedValue('hashed-pw') };
   const auth = { requestPasswordReset: jest.fn().mockResolvedValue({ success: true }) };
-  const service = new UsersService(prisma as never, audit as never, passwords as never, auth as never);
-  return { service, prisma, audit, passwords, auth };
+  const delivery = { sendTracked: jest.fn().mockResolvedValue({ id: 'del-1', status: 'SENT' }) };
+  const config = { get: jest.fn().mockReturnValue('https://web.test') };
+  const service = new UsersService(prisma as never, audit as never, passwords as never, auth as never, delivery as never, config as never);
+  return { service, prisma, audit, passwords, auth, delivery, config };
 }
 
 const admin: AuthUser = { id: 'admin-id', email: 'admin@x.test', roles: [Role.ADMIN], permissions: [Permission.USER_MANAGE] };
@@ -254,6 +257,51 @@ describe('UsersService — identity classification', () => {
   it('blocks a non-role-manager from changing identity type', async () => {
     const { service } = makeService({ roles: [Role.INDIVIDUAL] });
     await expect(service.setIdentityType(admin, 'target-id', 'COMPANY' as never)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('UsersService — account-notification emails', () => {
+  it('sends a tracked enrollment email on create — and never includes a plaintext password', async () => {
+    const { service, delivery, audit } = makeService(undefined);
+    const res = await service.create(superAdmin, { email: 'New@Example.test', firstName: 'New', lastName: 'User' });
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({ to: 'new@example.test', templateKey: 'user.enrollment' }));
+    const sent = delivery.sendTracked.mock.calls[0][0];
+    expect(sent.text).not.toContain(res.temporaryPassword); // password is never emailed
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_ENROLLMENT_EMAIL' }));
+  });
+
+  it('notifies BOTH the old and new address when the login email changes', async () => {
+    const { service, delivery } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { email: 'NEW@x.test' });
+    const calls = delivery.sendTracked.mock.calls.map((c) => c[0]);
+    expect(calls.some((m) => m.to === 'new@x.test' && m.templateKey === 'user.email_changed.new')).toBe(true);
+    expect(calls.some((m) => m.to === 'target@example.test' && m.templateKey === 'user.email_changed.old')).toBe(true);
+  });
+
+  it('emails the user when roles/authorities change', async () => {
+    const { service, delivery } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.setRoles(superAdmin, 'target-id', { roles: [Role.LAWYER] });
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({ templateKey: 'user.role_changed' }));
+  });
+
+  it('still creates the user when the email send fails (failure recorded, not thrown)', async () => {
+    const { service, delivery } = makeService(undefined);
+    delivery.sendTracked.mockResolvedValue({ id: 'del-1', status: 'FAILED', failureKind: 'PERMANENT' });
+    const res = await service.create(superAdmin, { email: 'a@b.test', firstName: 'A', lastName: 'B' });
+    expect(res.id).toBeDefined(); // creation succeeded despite the email failure
+  });
+
+  it('resends the enrollment email on demand', async () => {
+    const { service, delivery } = makeService({ roles: [Role.INDIVIDUAL] });
+    const res = await service.sendEnrollmentEmail(admin, 'target-id');
+    expect(res).toMatchObject({ sent: true });
+    expect(delivery.sendTracked).toHaveBeenCalledWith(expect.objectContaining({ templateKey: 'user.enrollment' }));
+  });
+
+  it('sends a password-setup link via the reset flow (no plaintext password)', async () => {
+    const { service, auth } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.sendPasswordSetupEmail(admin, 'target-id');
+    expect(auth.requestPasswordReset).toHaveBeenCalledWith('target@example.test');
   });
 });
 

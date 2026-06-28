@@ -174,6 +174,37 @@ describe('AdminUsers — delete-eligibility clarity', () => {
   });
 });
 
+describe('AdminUsers — account-notification emails', () => {
+  it('resends the enrollment email and shows delivery status', async () => {
+    get.mockImplementation((url: string) => {
+      if (url.includes('/email-deliveries')) return Promise.resolve({ data: [{ id: 'd1', subject: 'You have been enrolled on the Arbitration Panel', templateKey: 'user.enrollment', status: 'SENT', failureKind: null, errorDetail: null, sentAt: null, createdAt: '2026-06-27T10:00:00Z' }] });
+      return Promise.resolve({ data: { data: users, total: users.length } });
+    });
+    post.mockResolvedValue({ data: { sent: true } });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    // Delivery status appears.
+    expect(await within(row).findByText('SENT')).toBeInTheDocument();
+    // Resend enrollment.
+    fireEvent.click(within(row).getByRole('button', { name: 'Send enrollment email' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/admin/users/u1/send-enrollment', {}));
+  });
+
+  it('can send a password-setup email', async () => {
+    get.mockImplementation((url: string) => {
+      if (url.includes('/email-deliveries')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: { data: users, total: users.length } });
+    });
+    post.mockResolvedValue({ data: { sent: true } });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    fireEvent.click(await within(row).findByRole('button', { name: 'Send password setup email' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/admin/users/u1/send-password-setup', {}));
+  });
+});
+
 describe('AdminUsers — deletion vs. archive', () => {
   it('permanently deletes an UNLINKED user via DELETE', async () => {
     del.mockResolvedValue({ data: { deleted: true } });

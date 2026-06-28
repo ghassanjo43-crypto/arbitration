@@ -61,6 +61,7 @@ export function AdminUsers() {
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [linkFilter, setLinkFilter] = useState<'all' | 'eligible' | 'linked' | 'archived'>('all');
   const [blockersFor, setBlockersFor] = useState<{ id: string; blockers: Record<string, number> } | null>(null);
+  const [emailsFor, setEmailsFor] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<{ data: AdminUser[]; total: number }>({
     queryKey: ['admin-users', search],
@@ -92,6 +93,21 @@ export function AdminUsers() {
     mutationFn: (id: string) => api.get(`/admin/users/${id}/delete-check`).then((r) => r.data as { id: string; blockers: Record<string, number> }),
     onSuccess: (d) => { setBlockersFor({ id: d.id, blockers: d.blockers }); setError(null); },
     onError: (e: unknown) => { setError(apiError(e)); },
+  });
+  // Account-notification emails: resend + delivery status.
+  const emailDeliveries = useQuery<{ id: string; subject: string; templateKey: string | null; status: string; failureKind: string | null; errorDetail: string | null; sentAt: string | null; createdAt: string }[]>({
+    queryKey: ['user-emails', emailsFor],
+    queryFn: async () => (await api.get(`/admin/users/${emailsFor}/email-deliveries`)).data,
+    enabled: !!emailsFor,
+  });
+  const refreshEmails = () => { if (emailsFor) void qc.invalidateQueries({ queryKey: ['user-emails', emailsFor] }); };
+  const sendEnrollment = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/users/${id}/send-enrollment`, {}),
+    onSuccess: () => { setNotice('Enrollment email sent'); setError(null); refreshEmails(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
+  });
+  const sendPasswordSetup = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/users/${id}/send-password-setup`, {}),
+    onSuccess: () => { setNotice('Password-setup email sent'); setError(null); refreshEmails(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
   });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
@@ -362,6 +378,9 @@ export function AdminUsers() {
                               onClick={() => { const email = confirm(`Reset password for ${u.email}?\n\nOK = e-mail a reset link to the user.\nCancel = generate a temporary password to show here.`); void wrap(() => resetPassword.mutateAsync({ id: u.id, sendEmail: email })); }}
                             >Reset password</button>
                           )}
+                          {!locked && (
+                            <button className="btn btn--ghost btn--sm" onClick={() => setEmailsFor(emailsFor === u.id ? null : u.id)}>{emailsFor === u.id ? 'Hide emails' : 'Emails'}</button>
+                          )}
 
                           {isActive ? (
                             <>
@@ -399,6 +418,29 @@ export function AdminUsers() {
                             </>
                           )}
                         </div>
+                        {/* Account-notification email status + resend (admin visibility). */}
+                        {emailsFor === u.id && (
+                          <div style={{ marginTop: 'var(--sp-2)' }}>
+                            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                              <button className="btn btn--ghost btn--sm" disabled={sendEnrollment.isPending} onClick={() => sendEnrollment.mutate(u.id)}>Send enrollment email</button>
+                              <button className="btn btn--ghost btn--sm" disabled={sendPasswordSetup.isPending} onClick={() => sendPasswordSetup.mutate(u.id)}>Send password setup email</button>
+                            </div>
+                            {emailDeliveries.isLoading ? <p className="field__hint">Loading email status…</p> : (
+                              <table className="table" style={{ fontSize: 11, marginTop: 4 }}>
+                                <thead><tr><th>Email</th><th>Status</th><th>When / detail</th></tr></thead>
+                                <tbody>
+                                  {emailDeliveries.data?.length ? emailDeliveries.data.map((d) => (
+                                    <tr key={d.id}>
+                                      <td>{d.subject}</td>
+                                      <td><span className={`badge ${d.status === 'SENT' || d.status === 'DELIVERED' ? 'badge--success' : d.status === 'FAILED' || d.status === 'BOUNCED' ? 'badge--danger' : 'badge--info'}`}>{d.status}</span></td>
+                                      <td className="field__hint">{d.failureKind ? d.errorDetail : new Date(d.createdAt).toLocaleString()}</td>
+                                    </tr>
+                                  )) : <tr><td colSpan={3} className="muted">No emails recorded for this address yet.</td></tr>}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

@@ -2,12 +2,15 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { IDENTITY_ROLES, IDENTITY_TYPE_ROLE, IdentityType, Permission, Role, STAFF_ROLES, UserStatus, identityForRoles } from '@gaap/shared';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
 import { AuthService } from '../auth/auth.service';
+import { EmailDeliveryService } from '../deliverability/email-delivery.service';
 import { AuthUser } from '../auth/types';
 import { CreateUserDto, ResetPasswordDto, SetRolesDto, UpdateUserDto } from './dto';
+import { emailChangedNew, emailChangedOld, enrollmentEmail, roleChangedEmail } from './user-emails';
 
 @Injectable()
 export class UsersService {
@@ -16,6 +19,8 @@ export class UsersService {
     private readonly audit: AuditService,
     private readonly passwords: PasswordService,
     private readonly auth: AuthService,
+    private readonly delivery: EmailDeliveryService,
+    private readonly config: ConfigService,
   ) {}
 
   async list(query: { q?: string; status?: string; role?: string; page?: number; pageSize?: number }) {
@@ -105,6 +110,9 @@ export class UsersService {
       entityId: created.id,
       metadata: { email, roles, status: created.status, by: actor.email },
     });
+    // Enrollment email (tracked). No password is ever emailed — the user sets it
+    // via "Forgot password". Email failure is recorded, never breaks creation.
+    await this.sendUserEmail(actor, created.id, email, enrollmentEmail({ displayName, email, roles, ...this.urls() }), 'USER_ENROLLMENT_EMAIL');
     return { ...this.toView(created), ...(generated ? { temporaryPassword: generated } : {}) };
   }
 
@@ -179,6 +187,9 @@ export class UsersService {
         entityId: id,
         metadata: { from: target.email, to: nextEmail, by: actor.email },
       });
+      // Notify both addresses (tracked). New: "this is now your login"; old: security alert.
+      await this.sendUserEmail(actor, id, nextEmail, emailChangedNew({ newEmail: nextEmail, loginUrl: this.urls().loginUrl }), 'USER_EMAIL_CHANGE_NOTIFIED');
+      await this.sendUserEmail(actor, id, target.email, emailChangedOld({ oldEmail: target.email, newEmail: nextEmail }), 'USER_EMAIL_CHANGE_NOTIFIED');
     }
 
     // Distinct, audit-friendly events for each lifecycle transition.
@@ -244,7 +255,12 @@ export class UsersService {
         metadata: { role, by: actor.email },
       });
     }
-    return this.get(id);
+    const view = await this.get(id);
+    // Notify the user that their roles/authorities changed (tracked).
+    if (added.length || removed.length) {
+      await this.sendUserEmail(actor, id, view.email, roleChangedEmail({ displayName: view.displayName, added, removed, loginUrl: this.urls().loginUrl }), 'USER_ROLE_CHANGE_NOTIFIED');
+    }
+    return view;
   }
 
   /**
@@ -431,6 +447,61 @@ export class UsersService {
     });
     await this.audit.record({ userId: actor.id, action: 'ADMIN_USER_RESTORED', entityType: 'User', entityId: id, metadata: { by: actor.email } });
     return this.toView(updated);
+  }
+
+  // ---- Account-notification emails -----------------------------------------
+
+  private urls() {
+    const base = (this.config.get<string>('publicWebUrl') ?? 'http://localhost:5173').replace(/\/+$/, '');
+    return { loginUrl: `${base}/sign-in`, forgotUrl: `${base}/forgot-password` };
+  }
+
+  /** Send a tracked account email and audit the trigger. Never throws. */
+  private async sendUserEmail(actor: AuthUser, userId: string, to: string, mail: { subject: string; text: string; templateKey: string }, action: string) {
+    try {
+      const delivery = await this.delivery.sendTracked({ to, subject: mail.subject, text: mail.text, templateKey: mail.templateKey });
+      await this.audit.record({
+        userId: actor.id, action, entityType: 'User', entityId: userId,
+        metadata: { to, templateKey: mail.templateKey, deliveryId: delivery?.id, status: delivery?.status, by: actor.email },
+      });
+      return delivery;
+    } catch {
+      // sendTracked records its own failure; never break the originating action.
+      return null;
+    }
+  }
+
+  /** Resend the enrollment email for a user (Super Admin / admin). */
+  async sendEnrollmentEmail(actor: AuthUser, id: string) {
+    const view = await this.get(id);
+    await this.sendUserEmail(actor, id, view.email, enrollmentEmail({ displayName: view.displayName, email: view.email, roles: view.roles as Role[], ...this.urls() }), 'USER_ENROLLMENT_EMAIL');
+    return { sent: true, to: view.email };
+  }
+
+  /** Send a password-setup/reset link via the existing reset flow (no plaintext password). */
+  async sendPasswordSetupEmail(actor: AuthUser, id: string) {
+    const view = await this.get(id);
+    await this.auth.requestPasswordReset(view.email);
+    await this.audit.record({
+      userId: actor.id, action: 'USER_PASSWORD_SETUP_EMAIL', entityType: 'User', entityId: id,
+      metadata: { to: view.email, by: actor.email },
+    });
+    return { sent: true, to: view.email };
+  }
+
+  /** Email-delivery history for a user (admin visibility / status + resend). */
+  async listEmailDeliveries(actor: AuthUser, id: string) {
+    const view = await this.get(id);
+    const rows = await this.prisma.emailDelivery.findMany({
+      where: { toEmail: view.email },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((d) => ({
+      id: d.id, subject: d.subject, templateKey: d.templateKey, status: d.status,
+      provider: d.provider, providerMessageId: d.providerMessageId, failureKind: d.failureKind,
+      errorDetail: d.errorDetail, sentAt: d.sentAt, createdAt: d.createdAt,
+    }));
   }
 
   // ---- helpers ----
