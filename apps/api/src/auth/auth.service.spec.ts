@@ -10,17 +10,22 @@ function setup(opts: {
   emailFails?: boolean;
   adminEmail?: string;
   superAdmins?: { user: { email: string } }[];
+  resetToken?: Record<string, unknown> | null;
 }) {
   const prisma = {
     user: {
       findUnique: jest.fn().mockResolvedValue(opts.existingUser ?? null),
       create: jest.fn().mockResolvedValue({ id: 'new-user-id', email: 'new.user@example.com' }),
+      update: jest.fn().mockResolvedValue({}),
     },
     emailToken: {
       create: jest.fn().mockResolvedValue({ id: 'token-id' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(opts.resetToken ?? null),
+      update: jest.fn().mockResolvedValue({}),
     },
     userRole: { findMany: jest.fn().mockResolvedValue(opts.superAdmins ?? []) },
+    $transaction: jest.fn().mockResolvedValue([]),
   };
   const passwords = { hash: jest.fn().mockResolvedValue('hashed-password') };
   const email = {
@@ -34,7 +39,7 @@ function setup(opts: {
       k === 'publicWebUrl' ? 'http://localhost:5173' : k === 'email.adminNotificationEmail' ? opts.adminEmail : undefined,
     ),
   };
-  const tokens = {};
+  const tokens = { revokeAllForUser: jest.fn().mockResolvedValue(undefined) };
 
   const service = new AuthService(
     prisma as never,
@@ -44,7 +49,7 @@ function setup(opts: {
     audit as never,
     config as never,
   );
-  return { service, prisma, passwords, email, audit };
+  return { service, prisma, passwords, email, audit, tokens };
 }
 
 const dto = {
@@ -110,6 +115,38 @@ describe('AuthService.register', () => {
     });
     await expect(service.register(dto, {})).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.resetPassword', () => {
+  const validToken = () => ({ id: 't1', userId: 'u1', expiresAt: new Date(Date.now() + 3_600_000), usedAt: null });
+
+  it('verifies the email, clears lockout and activates a PENDING account so login works', async () => {
+    const { service, prisma, tokens } = setup({
+      existingUser: { id: 'u1', email: 'u@x.com', status: 'PENDING_VERIFICATION', deletedAt: null },
+      resetToken: validToken(),
+    });
+    await service.resetPassword('rawtoken', 'aVerySecret123');
+    const data = prisma.user.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ emailVerified: true, failedLoginCount: 0, lockedUntil: null, status: 'ACTIVE' });
+    expect(prisma.emailToken.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ usedAt: expect.any(Date) }) }));
+    expect(tokens.revokeAllForUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('does NOT revive a deactivated account (status untouched) but still verifies the email', async () => {
+    const { service, prisma } = setup({
+      existingUser: { id: 'u1', email: 'u@x.com', status: 'DEACTIVATED', deletedAt: null },
+      resetToken: validToken(),
+    });
+    await service.resetPassword('rawtoken', 'aVerySecret123');
+    const data = prisma.user.update.mock.calls[0][0].data;
+    expect(data.status).toBeUndefined();
+    expect(data.emailVerified).toBe(true);
+  });
+
+  it('rejects an invalid/expired/already-used reset token', async () => {
+    const { service } = setup({ resetToken: null }); // a used token (usedAt set) is not found by the query
+    await expect(service.resetPassword('x', 'aVerySecret123')).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

@@ -34,8 +34,15 @@ export function SignIn() {
     try {
       await login(values.email, values.password, values.mfaCode);
       navigate(from, { replace: true });
-    } catch {
-      setServerError('Invalid credentials, or your account requires verification.');
+    } catch (e) {
+      // Surface the API's specific reason (locked / suspended / not verified) when
+      // present, instead of one vague catch-all. Wrong-password stays generic.
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setServerError(
+        msg && !/invalid credentials/i.test(msg)
+          ? msg
+          : 'Invalid email or password. If your account is new or pending, use the password-reset link in your invitation email, or “Resend verification email” below.',
+      );
     }
   };
 

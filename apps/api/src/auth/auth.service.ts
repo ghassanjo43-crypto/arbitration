@@ -379,13 +379,32 @@ export class AuthService {
     });
     if (!row || row.expiresAt < new Date()) throw new BadRequestException('Invalid or expired reset link.');
     const passwordHash = await this.passwords.hash(newPassword);
+
+    // A reset link is delivered to, and used from, the account's email address —
+    // so completing it proves control of that email. We therefore verify the email
+    // and clear any lockout, so the user can sign in immediately. A PENDING account
+    // becomes ACTIVE; SUSPENDED/DEACTIVATED status is left untouched (a reset must
+    // not revive a disabled account).
+    const current = await this.prisma.user.findUnique({ where: { id: row.userId }, select: { status: true } });
+    const activate = current?.status === UserStatus.PENDING_VERIFICATION;
+
     await this.prisma.$transaction([
       this.prisma.emailToken.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
-      this.prisma.user.update({ where: { id: row.userId }, data: { passwordHash } }),
+      this.prisma.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash,
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+          ...(activate ? { status: UserStatus.ACTIVE } : {}),
+        },
+      }),
     ]);
     // Invalidate all sessions on password change.
     await this.tokens.revokeAllForUser(row.userId);
-    await this.audit.record({ userId: row.userId, action: 'PASSWORD_RESET' });
+    await this.audit.record({ userId: row.userId, action: 'PASSWORD_RESET', metadata: { emailVerified: true, activated: activate } });
     return { success: true };
   }
 }

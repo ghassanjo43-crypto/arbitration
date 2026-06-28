@@ -109,6 +109,10 @@ export function AdminUsers() {
     mutationFn: (id: string) => api.post(`/admin/users/${id}/send-password-setup`, {}),
     onSuccess: () => { setNotice('Password-setup email sent'); setError(null); refreshEmails(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
   });
+  const markVerified = useMutation({
+    mutationFn: (id: string) => api.patch(`/admin/users/${id}`, { emailVerified: true }),
+    onSuccess: () => { setNotice('Email marked as verified'); setError(null); invalidate(); }, onError: (e: unknown) => { setError(apiError(e)); setNotice(null); },
+  });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/admin/users/${id}/restore`, {}), onSuccess: invalidate });
   const saveRoles = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: string[] }) => api.put(`/admin/users/${id}/roles`, { roles }),
@@ -421,9 +425,11 @@ export function AdminUsers() {
                         {/* Account-notification email status + resend (admin visibility). */}
                         {emailsFor === u.id && (
                           <div style={{ marginTop: 'var(--sp-2)' }}>
-                            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                            <p className="field__hint" style={{ margin: 0 }}>Email verification: {u.emailVerified ? <span className="badge badge--success">verified</span> : <span className="badge badge--warning">not verified</span>} · Setting a password via the reset/setup link verifies the email automatically.</p>
+                            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginTop: 4 }}>
                               <button className="btn btn--ghost btn--sm" disabled={sendEnrollment.isPending} onClick={() => sendEnrollment.mutate(u.id)}>Send enrollment email</button>
                               <button className="btn btn--ghost btn--sm" disabled={sendPasswordSetup.isPending} onClick={() => sendPasswordSetup.mutate(u.id)}>Send password setup email</button>
+                              {!u.emailVerified && <button className="btn btn--ghost btn--sm" disabled={markVerified.isPending} onClick={() => markVerified.mutate(u.id)}>Mark email verified</button>}
                             </div>
                             {emailDeliveries.isLoading ? <p className="field__hint">Loading email status…</p> : (
                               <table className="table" style={{ fontSize: 11, marginTop: 4 }}>

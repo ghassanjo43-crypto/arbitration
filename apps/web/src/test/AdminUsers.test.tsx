@@ -191,6 +191,16 @@ describe('AdminUsers — account-notification emails', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/admin/users/u1/send-enrollment', {}));
   });
 
+  it('lets Super Admin mark an unverified user email as verified', async () => {
+    get.mockImplementation((url: string) => url.includes('/email-deliveries') ? Promise.resolve({ data: [] }) : Promise.resolve({ data: { data: users, total: users.length } }));
+    patch.mockResolvedValue({ data: {} });
+    renderPage();
+    const row = await rowFor('unverified@x.test'); // u2 is emailVerified:false
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    fireEvent.click(await within(row).findByRole('button', { name: 'Mark email verified' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u2', { emailVerified: true }));
+  });
+
   it('can send a password-setup email', async () => {
     get.mockImplementation((url: string) => {
       if (url.includes('/email-deliveries')) return Promise.resolve({ data: [] });
