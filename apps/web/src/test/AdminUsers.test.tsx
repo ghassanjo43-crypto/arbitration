@@ -473,3 +473,51 @@ describe('AdminUsers — edit/save UX', () => {
     confirmSpy.mockRestore();
   });
 });
+
+describe('AdminUsers — active-row highlight', () => {
+  it('highlights the user row while the Emails panel is open and clears it on close', async () => {
+    get.mockImplementation((url: string) =>
+      url.includes('/email-deliveries')
+        ? Promise.resolve({ data: [] })
+        : Promise.resolve({ data: { data: users, total: users.length } }));
+    renderPage();
+    const row = await rowFor('active@x.test');
+    expect(row).not.toHaveClass('is-active-row');
+    fireEvent.click(within(row).getByRole('button', { name: 'Emails' }));
+    expect(row).toHaveClass('is-active-row');
+    expect(within(row).getByText('Working on this user')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Hide emails' }));
+    expect(row).not.toHaveClass('is-active-row');
+    expect(within(row).queryByText('Working on this user')).not.toBeInTheDocument();
+  });
+
+  it('highlights the user row while the System roles editor is open and clears it on Cancel', async () => {
+    renderPage();
+    const row = await rowFor('active@x.test');
+    expect(row).not.toHaveClass('is-active-row');
+    fireEvent.click(within(row).getByRole('button', { name: 'System roles' }));
+    expect(row).toHaveClass('is-active-row');
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+    expect(row).not.toHaveClass('is-active-row');
+  });
+
+  it('highlights the user row while Edit mode is open and clears it on Cancel', async () => {
+    renderPage();
+    const row = await rowFor('active@x.test');
+    expect(row).not.toHaveClass('is-active-row');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    expect(row).toHaveClass('is-active-row');
+    expect(within(row).getByText('Working on this user')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+    expect(row).not.toHaveClass('is-active-row');
+  });
+
+  it('highlights only the user whose panel is open, not other rows', async () => {
+    renderPage();
+    const row1 = await rowFor('active@x.test');
+    const row2 = await rowFor('suspended@x.test');
+    fireEvent.click(within(row1).getByRole('button', { name: 'System roles' }));
+    expect(row1).toHaveClass('is-active-row');
+    expect(row2).not.toHaveClass('is-active-row');
+  });
+});

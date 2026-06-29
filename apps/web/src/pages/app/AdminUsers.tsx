@@ -280,14 +280,18 @@ export function AdminUsers() {
                   const linkTitle = (u.linkedRecordCount ?? 1) > 0
                     ? `Linked to ${u.linkedRecordCount} platform record(s) — permanent delete is blocked. Archive deactivates the account and keeps all records linked.`
                     : 'Archive deactivates the account and revokes sessions; records are retained.';
+                  // A row is "active" while any panel is open for it (Emails, Edit,
+                  // System roles, the identity change or the "Why?" breakdown) so the
+                  // whole row — and the detail panel it contains — is visually flagged.
+                  const rowSelected = editingDetails === u.id || editingRoles === u.id || emailsFor === u.id || blockersFor?.id === u.id;
                   // Editing details/email uses a dedicated full-width row so the Save
                   // button is unambiguous and can never be overlapped by adjacent cells.
                   if (editingDetails === u.id) {
                     return (
-                      <tr key={u.id}>
+                      <tr key={u.id} className="is-active-row">
                         <td colSpan={7}>
                           <div className="user-edit-form" style={{ display: 'grid', gap: 'var(--sp-2)', maxWidth: 560, padding: 'var(--sp-2)' }}>
-                            <strong>Editing {u.email}</strong>
+                            <strong>Editing {u.email}</strong> <span className="admin-users__active-tag">Working on this user</span>
                             <label className="field"><span className="field__label">Login email</span>
                               <input className="input" type="email" aria-label="Login email" value={detailDraft.email} onChange={(e) => setDetailDraft((d) => ({ ...d, email: e.target.value }))} /></label>
                             {detailDraft.email.trim().toLowerCase() !== u.email.toLowerCase() && (
@@ -310,8 +314,8 @@ export function AdminUsers() {
                     );
                   }
                   return (
-                    <tr key={u.id} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
-                      <td>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}</td>
+                    <tr key={u.id} className={rowSelected ? 'is-active-row' : undefined} style={u.deletedAt ? { opacity: 0.55 } : undefined}>
+                      <td>{u.email}{!u.emailVerified && <span className="badge badge--warning" style={{ marginInlineStart: 6 }}>unverified</span>}{rowSelected && <span className="admin-users__active-tag">Working on this user</span>}</td>
                       <td>{u.displayName}{isSelf && <span className="field__hint"> (you)</span>}</td>
                       {/* User type / identity (with the full system-roles editor when editing). */}
                       <td>

@@ -247,6 +247,37 @@
 /* Tidy, even spacing within the actions cell. */
 .admin-users .table td:last-child > div { gap: 6px; row-gap: 6px; }
 
+/* Active / selected user row — highlighted whenever a panel is open for that
+   user (Emails, Edit, System roles, identity change or the "Why?" breakdown),
+   so it is obvious which account is being worked on in a long table. Subtle
+   pale-gold wash + a stronger gold left accent, on brand and text-stays-readable.
+   The expanded detail panels live inside the same <tr>, so highlighting the row
+   covers both the main line and the panel below it. */
+.admin-users .table tr.is-active-row > td,
+.admin-users .table tr.is-active-row:hover > td {
+  background: var(--accent-soft);
+}
+.admin-users .table tr.is-active-row > td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--c-gold-600);
+}
+
+/* "Working on this user" chip shown on the active row. */
+.admin-users__active-tag {
+  display: inline-block;
+  margin-inline-start: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-gold-600);
+  background: var(--accent-soft);
+  border: 1px solid var(--c-gold-500);
+  border-radius: var(--r-sm);
+  padding: 0.05rem 0.4rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Timeline */
 .timeline { position: relative; padding-inline-start: var(--sp-5); }
 .timeline::before {
