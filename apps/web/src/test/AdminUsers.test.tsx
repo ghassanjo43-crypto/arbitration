@@ -521,3 +521,76 @@ describe('AdminUsers — active-row highlight', () => {
     expect(row2).not.toHaveClass('is-active-row');
   });
 });
+
+describe('AdminUsers — editing the user name', () => {
+  // Mutable store whose PATCH mock recomputes displayName the way the API does,
+  // so the post-save refetch reflects the new name (proving it does not revert).
+  function renderWithStore() {
+    const store = users.map((u) => ({ ...u }));
+    get.mockImplementation((url: string) =>
+      url.includes('/email-deliveries') ? Promise.resolve({ data: [] }) : Promise.resolve({ data: { data: store, total: store.length } }));
+    patch.mockImplementation((url: string, body: { firstName?: string; lastName?: string }) => {
+      const m = /\/admin\/users\/([^/]+)$/.exec(url);
+      if (m) {
+        const row = store.find((r) => r.id === m[1]);
+        if (row) {
+          if (body.firstName !== undefined) row.firstName = body.firstName;
+          if (body.lastName !== undefined) row.lastName = body.lastName;
+          row.displayName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || row.displayName;
+        }
+      }
+      return Promise.resolve({ data: {} });
+    });
+    return renderPage();
+  }
+
+  it('saves first/last name, sends the fields to the API, and shows the new name immediately', async () => {
+    renderWithStore();
+    const row = await rowFor('active@x.test');
+    expect(within(row).getByText('Active User')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByPlaceholderText('First'), { target: { value: 'Jane' } });
+    fireEvent.change(within(row).getByPlaceholderText('Last'), { target: { value: 'Doe' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    // API received the changed name fields.
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/admin/users/u1', expect.objectContaining({ firstName: 'Jane', lastName: 'Doe' })));
+    // Edit mode closes; the updated name is shown; success message appears.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
+    expect(await within(row).findByText('Jane Doe')).toBeInTheDocument();
+    expect(screen.getByText('User updated')).toBeInTheDocument();
+  });
+
+  it('keeps the new name after the post-save refetch (does not revert)', async () => {
+    renderWithStore();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByPlaceholderText('First'), { target: { value: 'Jane' } });
+    fireEvent.change(within(row).getByPlaceholderText('Last'), { target: { value: 'Doe' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    expect(await within(row).findByText('Jane Doe')).toBeInTheDocument();
+    // The invalidation refetch (store now carries 'Jane Doe') must not undo it.
+    await waitFor(() => expect(within(row).getByText('Jane Doe')).toBeInTheDocument());
+    expect(within(row).queryByText('Active User')).not.toBeInTheDocument();
+  });
+
+  it('on a failed save keeps edit mode open, shows the error, and preserves typed names', async () => {
+    patch.mockRejectedValue({ response: { data: { message: 'Name update failed.' } } });
+    renderPage();
+    const row = await rowFor('active@x.test');
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(row).getByPlaceholderText('First'), { target: { value: 'Jane' } });
+    fireEvent.change(within(row).getByPlaceholderText('Last'), { target: { value: 'Doe' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Name update failed/i);
+    expect(within(row).getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(within(row).getByDisplayValue('Jane')).toBeInTheDocument();
+    expect(within(row).getByDisplayValue('Doe')).toBeInTheDocument();
+  });
+
+  it('a user without user-management permission cannot edit names (no table, no Edit)', async () => {
+    perms = [];
+    renderPage();
+    expect(await screen.findByText(/do not have user-management permission/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+});

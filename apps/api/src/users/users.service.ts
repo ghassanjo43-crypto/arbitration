@@ -144,23 +144,32 @@ export class UsersService {
       verificationChange = { emailVerified: false, emailVerifiedAt: null };
     }
 
+    // Name (profile) changes. The list and notifications render the derived
+    // `displayName`, so whenever first/last name change we MUST recompute it —
+    // otherwise the saved name never appears. An explicit displayName wins; the
+    // merge falls back to existing profile values when only one field is sent.
+    const nameProvided = dto.firstName !== undefined || dto.lastName !== undefined || dto.displayName !== undefined;
+    let profileUpdate: { update: Record<string, unknown> } | undefined;
+    if (nameProvided) {
+      const firstName = dto.firstName ?? target.profile?.firstName ?? '';
+      const lastName = dto.lastName ?? target.profile?.lastName ?? '';
+      const displayName = dto.displayName?.trim() || `${firstName} ${lastName}`.trim() || target.email;
+      profileUpdate = {
+        update: {
+          ...(dto.firstName !== undefined ? { firstName: dto.firstName } : {}),
+          ...(dto.lastName !== undefined ? { lastName: dto.lastName } : {}),
+          displayName,
+        },
+      };
+    }
+
     const updated = await this.prisma.user.update({
       where: { id },
       data: {
         ...(dto.status ? { status: dto.status } : {}),
         ...(nextEmail ? { email: nextEmail } : {}),
         ...verificationChange,
-        ...(dto.firstName || dto.lastName || dto.displayName
-          ? {
-              profile: {
-                update: {
-                  ...(dto.firstName ? { firstName: dto.firstName } : {}),
-                  ...(dto.lastName ? { lastName: dto.lastName } : {}),
-                  ...(dto.displayName ? { displayName: dto.displayName } : {}),
-                },
-              },
-            }
-          : {}),
+        ...(profileUpdate ? { profile: profileUpdate } : {}),
       },
       include: { profile: true, roles: true },
     });
@@ -174,9 +183,28 @@ export class UsersService {
         by: actor.email,
         ...(nextEmail ? { emailChanged: true } : {}),
         ...(dto.emailVerified !== undefined ? { emailVerified: dto.emailVerified } : {}),
-        ...(dto.firstName || dto.lastName || dto.displayName ? { profileChanged: true } : {}),
+        ...(nameProvided ? { profileChanged: true } : {}),
       },
     });
+
+    // Distinct, audit-friendly profile (name) change event.
+    if (nameProvided) {
+      await this.audit.record({
+        userId: actor.id,
+        action: 'USER_PROFILE_UPDATED',
+        entityType: 'User',
+        entityId: id,
+        metadata: {
+          by: actor.email,
+          fields: [
+            ...(dto.firstName !== undefined ? ['firstName'] : []),
+            ...(dto.lastName !== undefined ? ['lastName'] : []),
+            ...(dto.displayName !== undefined ? ['displayName'] : []),
+          ],
+          displayName: updated.profile?.displayName,
+        },
+      });
+    }
 
     // Distinct, audit-friendly login-email change event recording old → new.
     if (nextEmail) {
@@ -531,7 +559,7 @@ export class UsersService {
   // ---- helpers ----
 
   private async loadTarget(id: string) {
-    const t = await this.prisma.user.findUnique({ where: { id }, include: { roles: true } });
+    const t = await this.prisma.user.findUnique({ where: { id }, include: { roles: true, profile: true } });
     if (!t) throw new NotFoundException('User not found.');
     return t;
   }

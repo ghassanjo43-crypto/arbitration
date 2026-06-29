@@ -134,6 +134,9 @@ export function AdminUsers() {
     setError(null);
     setNotice(null);
     const nextEmail = detailDraft.email.trim().toLowerCase();
+    // The list renders displayName, so derive it from the edited names exactly
+    // as the API does — this makes the saved name appear immediately.
+    const nextDisplayName = `${detailDraft.firstName} ${detailDraft.lastName}`.trim() || nextEmail;
     try {
       // Admin user update endpoint (supports email changes). Sends the edited email.
       const res = await api.patch(`/admin/users/${u.id}`, {
@@ -147,7 +150,7 @@ export function AdminUsers() {
       qc.setQueryData(['admin-users', search], (old: { data: AdminUser[]; total: number } | undefined) =>
         old
           ? { ...old, data: old.data.map((r) => (r.id === u.id
-              ? { ...r, ...(updated && typeof updated === 'object' ? updated : {}), email: nextEmail, firstName: detailDraft.firstName, lastName: detailDraft.lastName, emailVerified: detailDraft.emailVerified }
+              ? { ...r, ...(updated && typeof updated === 'object' ? updated : {}), email: nextEmail, firstName: detailDraft.firstName, lastName: detailDraft.lastName, displayName: nextDisplayName, emailVerified: detailDraft.emailVerified }
               : r)) }
           : old);
       setEditingDetails(null);

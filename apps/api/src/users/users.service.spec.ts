@@ -353,6 +353,62 @@ describe('UsersService — login email update', () => {
   });
 });
 
+describe('UsersService — profile (name) update', () => {
+  it('persists firstName/lastName AND recomputes displayName from the new names', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] }); // profile T Arget
+    await service.update(superAdmin, 'target-id', { firstName: 'Jane', lastName: 'Doe' });
+    const data = prisma.user.update.mock.calls[0][0].data;
+    expect(data.profile.update).toMatchObject({ firstName: 'Jane', lastName: 'Doe', displayName: 'Jane Doe' });
+  });
+
+  it('recomputes displayName by merging a single changed name with the existing one', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] }); // existing lastName 'Arget'
+    await service.update(superAdmin, 'target-id', { firstName: 'Jane' });
+    const data = prisma.user.update.mock.calls[0][0].data;
+    expect(data.profile.update).toMatchObject({ firstName: 'Jane', displayName: 'Jane Arget' });
+  });
+
+  it('lets an explicit displayName win over the derived one', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { firstName: 'Jane', lastName: 'Doe', displayName: 'JD' });
+    expect(prisma.user.update.mock.calls[0][0].data.profile.update.displayName).toBe('JD');
+  });
+
+  it('returns the updated view with the new displayName (shows immediately)', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    prisma.user.update.mockImplementation(({ data }: { data: { profile: { update: Record<string, string> } } }) =>
+      Promise.resolve({
+        id: 'target-id', email: 'target@example.test', status: 'ACTIVE', emailVerified: true,
+        roles: [{ role: Role.INDIVIDUAL }],
+        profile: { firstName: data.profile.update.firstName, lastName: data.profile.update.lastName, displayName: data.profile.update.displayName },
+      }),
+    );
+    const view = await service.update(superAdmin, 'target-id', { firstName: 'Jane', lastName: 'Doe' });
+    expect(view.displayName).toBe('Jane Doe');
+    expect(view.firstName).toBe('Jane');
+    expect(view.lastName).toBe('Doe');
+  });
+
+  it('emits a distinct USER_PROFILE_UPDATED audit event listing the changed fields', async () => {
+    const { service, audit } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { firstName: 'Jane', lastName: 'Doe' });
+    const evt = audit.record.mock.calls.map((c) => c[0]).find((e) => e.action === 'USER_PROFILE_UPDATED');
+    expect(evt).toBeDefined();
+    expect(evt!.metadata.fields).toEqual(expect.arrayContaining(['firstName', 'lastName']));
+  });
+
+  it('does NOT touch the profile when no name fields are provided', async () => {
+    const { service, prisma } = makeService({ roles: [Role.INDIVIDUAL] });
+    await service.update(superAdmin, 'target-id', { emailVerified: true });
+    expect(prisma.user.update.mock.calls[0][0].data.profile).toBeUndefined();
+  });
+
+  it('blocks a non-super admin from editing a super administrator’s name', async () => {
+    const { service } = makeService({ roles: [Role.SUPER_ADMIN] });
+    await expect(service.update(admin, 'target-id', { firstName: 'Hax', lastName: 'Or' })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
 describe('UpdateUserDto — email validation', () => {
   it('rejects an invalid email', async () => {
     const dto = new UpdateUserDto();
