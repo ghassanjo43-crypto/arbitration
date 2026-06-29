@@ -149,16 +149,22 @@ export class UsersService {
     // otherwise the saved name never appears. An explicit displayName wins; the
     // merge falls back to existing profile values when only one field is sent.
     const nameProvided = dto.firstName !== undefined || dto.lastName !== undefined || dto.displayName !== undefined;
-    let profileUpdate: { update: Record<string, unknown> } | undefined;
+    let profileUpdate: { upsert: { create: { firstName: string; lastName: string; displayName: string }; update: Record<string, unknown> } } | undefined;
     if (nameProvided) {
       const firstName = dto.firstName ?? target.profile?.firstName ?? '';
       const lastName = dto.lastName ?? target.profile?.lastName ?? '';
       const displayName = dto.displayName?.trim() || `${firstName} ${lastName}`.trim() || target.email;
+      // Upsert (not update): some accounts may have no profile row yet (legacy /
+      // imported users). `update` would throw "Record to update not found" and the
+      // save would silently fail; upsert creates the profile when it is missing.
       profileUpdate = {
-        update: {
-          ...(dto.firstName !== undefined ? { firstName: dto.firstName } : {}),
-          ...(dto.lastName !== undefined ? { lastName: dto.lastName } : {}),
-          displayName,
+        upsert: {
+          create: { firstName, lastName, displayName },
+          update: {
+            ...(dto.firstName !== undefined ? { firstName: dto.firstName } : {}),
+            ...(dto.lastName !== undefined ? { lastName: dto.lastName } : {}),
+            displayName,
+          },
         },
       };
     }
