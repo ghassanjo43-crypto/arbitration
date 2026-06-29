@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { FILING_CAPACITIES } from '@gaap/shared';
+import { FILING_CAPACITIES, canFileCase } from '@gaap/shared';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { api } from '../lib/api';
@@ -64,6 +64,26 @@ export function FileACase() {
             To protect the confidentiality of filings, a verified account is required. Please{' '}
             <a href="/sign-in">sign in</a> or <a href="/register">create an account</a> to continue.
           </div>
+        </div></div>
+      </>
+    );
+  }
+
+  // Role separation: only parties/representatives may file. An arbitrator,
+  // registrar, council or admin account must not initiate a case. This mirrors
+  // the API guard so a directly-navigated URL is also blocked (the API rejects
+  // it regardless), and the dashboard hides the entry point.
+  if (!canFileCase(user.roles)) {
+    return (
+      <>
+        <PageHeader eyebrow="File a Case" title="Notice of Arbitration" lede="Filing is reserved for parties and their authorized representatives." />
+        <div className="section"><div className="container narrow">
+          <div className="alert alert--legal" role="alert">
+            Only claimants, company parties, or authorized representatives may file a case. Your account does not hold a
+            party or representative role, so it cannot initiate an arbitration. If you also act as a party, please use a
+            separate party account to avoid any conflict with a tribunal or institutional role.
+          </div>
+          <Link to="/app" className="btn btn--ghost" style={{ marginTop: 'var(--sp-4)' }}>← Back to dashboard</Link>
         </div></div>
       </>
     );

@@ -44,6 +44,19 @@ export const PARTY_ROLES: Role[] = [
 ];
 
 /**
+ * Filing a new arbitration case is a PARTY act. It is available only to a person
+ * or company acting as a party (Individual, Company) or to an authorized
+ * representative (Lawyer) filing on their behalf. Tribunal and institutional
+ * roles — Arbitrator, Registrar, Council member, Admin, Super Admin — must NEVER
+ * be able to initiate a case from those accounts (role separation / conflict
+ * prevention). Holding a staff/tribunal role alongside a party role does not
+ * remove the party capacity, but it should trigger a conflict warning in the UI.
+ */
+export function canFileCase(roles: Role[]): boolean {
+  return roles.some((r) => PARTY_ROLES.includes(r));
+}
+
+/**
  * Per-case relationship of a user to a single case. Confidential tribunal
  * deliberations are gated on TRIBUNAL_* case roles only — never on a global
  * role. Registrars/admins administer the case but cannot read deliberations.

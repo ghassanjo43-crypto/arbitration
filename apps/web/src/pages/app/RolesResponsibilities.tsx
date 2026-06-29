@@ -112,6 +112,8 @@ const ROLES: RoleInfo[] = [
       'Maintain independence and impartiality',
     ],
     cannot: [
+      'File or initiate arbitration claims from the arbitrator account',
+      'Act as a claimant or respondent (party) from the arbitrator account',
       'Manage platform users',
       'Change global platform settings',
       'Act as Registrar',

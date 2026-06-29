@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { CaseRole, CaseStage, PartySide, Permission, Role } from '@gaap/shared';
+import { CaseRole, CaseStage, PartySide, Permission, Role, canFileCase } from '@gaap/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CaseAccessService } from '../authz/case-access.service';
@@ -25,6 +25,13 @@ export class CasesService {
   }
 
   async createDraft(user: AuthUser, dto: CreateCaseDraftDto) {
+    // Role separation: only a party (Individual/Company) or an authorized
+    // representative (Lawyer) may FILE a case. An Arbitrator/Registrar/Council/
+    // Super-Admin account holds no party capacity and is rejected here — the
+    // button is also hidden in the UI, but the API must not rely on that.
+    if (!canFileCase(user.roles)) {
+      throw new ForbiddenException('Only claimants, company parties, or authorized representatives may file a case.');
+    }
     const reference = await this.nextReference();
     const created = await this.prisma.case.create({
       data: {

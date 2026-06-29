@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CaseSummary } from '@gaap/shared';
-import { Permission, Role } from '@gaap/shared';
+import { Permission, Role, canFileCase } from '@gaap/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../lib/api';
 
@@ -16,6 +16,13 @@ export function Dashboard() {
 
   const has = (p: Permission) => !!user?.permissions.includes(p);
   const is = (r: Role) => !!user?.roles.includes(r);
+  // Filing a case is a PARTY act — only parties/representatives may start one.
+  // Arbitrators, registrars, council and admins never file from their account.
+  const canFile = !!user && canFileCase(user.roles);
+  // Edge case: an account that is BOTH an arbitrator and a party may file, but
+  // must be warned about the conflict of acting as a party while sitting (or
+  // eligible to sit) as a tribunal member.
+  const partyArbitratorConflict = canFile && is(Role.ARBITRATOR);
 
   return (
     <div className="section">
@@ -36,10 +43,18 @@ export function Dashboard() {
             {has(Permission.SETTINGS_MANAGE) && <Link to="/app/admin/retention" className="btn btn--ghost">{t('desk.retention')}</Link>}
             {(has(Permission.USER_MANAGE) || has(Permission.APPOINTMENT_MANAGE) || has(Permission.ARBITRATOR_APPROVE) || has(Permission.CONFLICT_REVIEW)) && <Link to="/app/admin/arbitrators" className="btn btn--ghost">Arbitrator Access</Link>}
             <Link to="/app/roles" className="btn btn--ghost">User Roles</Link>
-            <Link to="/file-a-case" className="btn btn--gold">{t('desk.fileCase')}</Link>
+            {canFile && <Link to="/file-a-case" className="btn btn--gold">{t('desk.fileCase')}</Link>}
             <button className="btn btn--ghost" onClick={() => void logout()}>{t('desk.signOut')}</button>
           </div>
         </div>
+
+        {partyArbitratorConflict && (
+          <div className="alert alert--legal" role="note" style={{ marginTop: 'var(--sp-4)' }}>
+            <strong>Conflict notice:</strong> this account also holds an arbitrator role. Filing a case here makes you a
+            party. You must not act as a party and sit as an arbitrator on the same matter — use a separate party account
+            and disclose the relationship.
+          </div>
+        )}
 
         {has(Permission.CASE_VIEW_QUEUE) && <RegistrarQueue />}
         {is(Role.ARBITRATOR) && <ArbitratorInvitations />}
@@ -50,7 +65,7 @@ export function Dashboard() {
         {cases && cases.length === 0 && (
           <div className="empty-state">
             <p>You have no cases yet.</p>
-            <Link to="/file-a-case" className="btn btn--primary">Start a Notice of Arbitration</Link>
+            {canFile && <Link to="/file-a-case" className="btn btn--primary">Start a Notice of Arbitration</Link>}
           </div>
         )}
         {cases && cases.length > 0 && (
